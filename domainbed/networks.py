@@ -193,7 +193,9 @@ class ViT(nn.Module):
 
         self.network = torchvision.models.vit_b_16(pretrained=True)
         self.dropout = nn.Dropout(hparams["resnet_dropout"])
-        breakpoint()
+        
+        del self.network.heads
+        self.network.heads = Identity()
 
     def forward(self, x):
         """Encode x into a feature vector of size n_outputs."""
