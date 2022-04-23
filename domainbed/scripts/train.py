@@ -20,6 +20,7 @@ from domainbed import hparams_registry
 from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
+from domainbed.lib.torchmisc import dataloader
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Domain generalization')
@@ -48,6 +49,7 @@ if __name__ == "__main__":
         help="For domain adaptation, % of test to use unlabeled for training.")
     parser.add_argument('--skip_model_save', action='store_true')
     parser.add_argument('--save_model_every_checkpoint', action='store_true')
+    parser.add_argument('--restore', type=str, default=None)
     args = parser.parse_args()
 
     # If we ever want to implement checkpointing, just persist these values
@@ -151,18 +153,21 @@ if __name__ == "__main__":
         for i, (env, env_weights) in enumerate(in_splits)
         if i not in args.test_envs]
 
-    uda_loaders = [InfiniteDataLoader(
-        dataset=env,
-        weights=env_weights,
-        batch_size=hparams['batch_size'],
-        num_workers=dataset.N_WORKERS)
-        for i, (env, env_weights) in enumerate(uda_splits)
-        if i in args.test_envs]
+    # uda_loaders = [InfiniteDataLoader(
+    #     dataset=env,
+    #     weights=env_weights,
+    #     batch_size=hparams['batch_size'],
+    #     num_workers=dataset.N_WORKERS)
+    #     for i, (env, env_weights) in enumerate(uda_splits)
+    #     if i in args.test_envs]
 
+    num_workers_eval = 8 if args.dataset != "DomainNet" else 8
+    batch_size_eval = 128 if args.dataset != "DomainNet" else 128
+    eval_class = FastDataLoader if args.dataset != "DomainNet" else dataloader
     eval_loaders = [FastDataLoader(
         dataset=env,
-        batch_size=64,
-        num_workers=dataset.N_WORKERS)
+        batch_size=batch_size_eval,
+        num_workers=num_workers_eval)
         for env, _ in (in_splits + out_splits + uda_splits)]
     eval_weights = [None for _, weights in (in_splits + out_splits + uda_splits)]
     eval_loader_names = ['env{}_in'.format(i)
@@ -180,9 +185,13 @@ if __name__ == "__main__":
         algorithm.load_state_dict(algorithm_dict)
 
     algorithm.to(device)
+    
+    if args.restore:
+        ckpt = torch.load(args.restore)
+        algorithm.load_state_dict(ckpt["model_dict"])
 
     train_minibatches_iterator = zip(*train_loaders)
-    uda_minibatches_iterator = zip(*uda_loaders)
+    # uda_minibatches_iterator = zip(*uda_loaders)
     checkpoint_vals = collections.defaultdict(lambda: [])
 
     steps_per_epoch = min([len(env)/hparams['batch_size'] for env,_ in in_splits])

@@ -48,6 +48,7 @@ ALGORITHMS = [
     'IB_IRM',
     'CAD',
     'CondCAD',
+    'SMA',
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -1787,3 +1788,55 @@ class CondCAD(AbstractCAD):
     """
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(CondCAD, self).__init__(input_shape, num_classes, num_domains, hparams, is_conditional=True)
+
+
+class MovingAvg:
+    def __init__(self, network):
+        self.network = network
+        self.network_sma = copy.deepcopy(network)
+        self.network_sma.eval()
+        self.sma_start_iter = 1000
+        self.global_iter = 0
+        self.sma_count = 0
+
+    def update_sma(self):
+        self.global_iter += 1
+        if self.global_iter >= self.sma_start_iter:
+            self.sma_count += 1
+            for param_q, param_k in zip(
+                self.network.parameters(), self.network_sma.parameters()
+            ):
+                param_k.data = (param_k.data * self.sma_count + param_q.data) / (
+                    1.0 + self.sma_count
+                )
+        else:
+            for param_q, param_k in zip(
+                self.network.parameters(), self.network_sma.parameters()
+            ):
+                param_k.data = param_q.data
+
+
+class SMA(ERM, MovingAvg):
+    """
+    Empirical Risk Minimization (ERM) with Simple Moving Average (SMA) prediction model
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
+        MovingAvg.__init__(self, self.network)
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        loss = F.cross_entropy(self.network(all_x), all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        self.update_sma()
+        return {"loss": loss.item()}
+
+    def predict(self, x):
+        self.network_sma.eval()
+        return self.network_sma(x)

@@ -181,8 +181,30 @@ class ContextNet(nn.Module):
         return self.context_net(x)
 
 
+class ViT(nn.Module):
+    """
+    ViT: Visual Identity Transformation
+    """
+    def __init__(self, input_shape, hparams):
+        super(ViT, self).__init__()
+        self.hparams = hparams
+        self.input_shape = input_shape
+        self.n_outputs = 768
+
+        self.network = torchvision.models.vit_b_16(pretrained=True)
+        self.dropout = nn.Dropout(hparams["resnet_dropout"])
+        breakpoint()
+
+    def forward(self, x):
+        """Encode x into a feature vector of size n_outputs."""
+        return self.dropout(self.network(x))
+
+
 def Featurizer(input_shape, hparams):
     """Auto-select an appropriate featurizer for the given input shape."""
+    if hparams['vit_base_16']:
+        return ViT(input_shape, hparams)
+    
     if len(input_shape) == 1:
         return MLP(input_shape[0], hparams["mlp_width"], hparams)
     elif input_shape[1:3] == (28, 28):
