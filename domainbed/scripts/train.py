@@ -164,7 +164,7 @@ if __name__ == "__main__":
     num_workers_eval = 8 if args.dataset != "DomainNet" else 8
     batch_size_eval = 128 if args.dataset != "DomainNet" else 128
     eval_class = FastDataLoader if args.dataset != "DomainNet" else dataloader
-    eval_loaders = [FastDataLoader(
+    eval_loaders = [eval_class(
         dataset=env,
         batch_size=batch_size_eval,
         num_workers=num_workers_eval)

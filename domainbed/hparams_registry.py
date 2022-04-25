@@ -28,7 +28,8 @@ def _hparams(algorithm, dataset, random_seed):
     # Unconditional hparam definitions.
     
     _hparam('vit_base_16', True, lambda r: True)
-    _hparam('resnet_dropout', 0., lambda r: r.choice([0., 0.1, 0.5]))
+    _hparam('im21k', False, lambda r: False)
+    _hparam('resnet_dropout', 0.1, lambda r: 0.1)
 
     _hparam('data_augmentation', True, lambda r: True)
     _hparam('resnet18', False, lambda r: False)
@@ -139,7 +140,8 @@ def _hparams(algorithm, dataset, random_seed):
     if dataset in SMALL_IMAGES:
         _hparam('weight_decay', 0., lambda r: 0.)
     else:
-        _hparam('weight_decay', 1e-4, lambda r: 1e-4)
+        # _hparam('weight_decay', 1e-4, lambda r: 1e-4)
+        _hparam('weight_decay', 1e-2, lambda r: 1e-2)
 
     if dataset in SMALL_IMAGES:
         _hparam('batch_size', 64, lambda r: int(2**r.uniform(3, 9)))

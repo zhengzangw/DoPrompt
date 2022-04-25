@@ -8,6 +8,7 @@ from torch.autograd import Variable
 
 import copy
 import numpy as np
+import math
 from collections import defaultdict, OrderedDict
 try:
     from backpack import backpack, extend
@@ -96,7 +97,12 @@ class ERM(Algorithm):
             self.hparams['nonlinear_classifier'])
 
         self.network = nn.Sequential(self.featurizer, self.classifier)
-        self.optimizer = torch.optim.Adam(
+        if self.hparams['vit_base_16']:
+            optimizer = torch.optim.AdamW
+        else:
+            optimizer = torch.optim.Adam
+        
+        self.optimizer = optimizer(
             self.network.parameters(),
             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']

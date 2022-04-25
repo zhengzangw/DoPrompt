@@ -190,12 +190,18 @@ class ViT(nn.Module):
         self.hparams = hparams
         self.input_shape = input_shape
         self.n_outputs = 768
-
-        self.network = torchvision.models.vit_b_16(pretrained=True)
-        self.dropout = nn.Dropout(hparams["resnet_dropout"])
         
-        del self.network.heads
-        self.network.heads = Identity()
+        self.dropout = nn.Dropout(hparams["resnet_dropout"])
+
+        if hparams['im21k']:
+            import timm
+            self.network = timm.create_model("vit_base_patch16_224", pretrained=True, drop_path_rate=0.1)
+            del self.network.head
+            self.network.head = Identity()
+        else:
+            self.network = torchvision.models.vit_b_16(pretrained=True)
+            del self.network.heads
+            self.network.heads = Identity()
 
     def forward(self, x):
         """Encode x into a feature vector of size n_outputs."""
