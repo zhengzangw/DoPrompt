@@ -128,6 +128,9 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('is_normalized', False, lambda r: False)
         _hparam('is_project', False, lambda r: False)
         _hparam('is_flipped', True, lambda r: True)
+        
+    elif algorithm == "Prompt":
+        _hparam('prompt_dim', 4, lambda r: 4)
 
     # Dataset-and-algorithm-specific hparam definitions. Each block of code
     # below corresponds to exactly one hparam. Avoid nested conditionals.

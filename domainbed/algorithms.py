@@ -51,6 +51,7 @@ ALGORITHMS = [
     'CAD',
     'CondCAD',
     'SMA',
+    'Prompt',
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -1864,3 +1865,68 @@ class SMA(ERM, MovingAvg):
     def predict(self, x):
         self.network_sma.eval()
         return self.network_sma(x)
+
+
+class DomainPrompt():
+    def __init__(self, network, domain_token):
+        self.featurizer = network
+        self.domain_tokens = domain_token
+        
+    def add_domain_prompt(self):
+        domain_tokens = self.domain_tokens
+        def _add_domain_prompt(model, x):
+            act = x[0]
+            x_new = torch.cat([domain_tokens, act], dim=1)
+            return (x_new, )
+        return _add_domain_prompt
+          
+    def __enter__(self):
+        self.hook = self.featurizer.network.encoder.dropout.register_forward_pre_hook(self.add_domain_prompt())
+        
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.hook.remove()
+
+
+class Prompt(ERM):
+    """
+    Empirical Risk Minimization (ERM) with Prompt prediction model
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
+        assert self.hparams['vit_base_16'] == True
+        
+        self.domain_prompt_tokens = nn.Parameter(torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02))
+        self.prompt_opt = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+        
+    def minibatch_domain_prompt(self, minibatches):
+        domain_labels = torch.cat([
+            torch.full((x.shape[0], ), i, dtype=torch.int64, device="cuda")
+            for i, (x, y) in enumerate(minibatches)
+        ])
+        domain_tokens = self.domain_prompt_tokens[domain_labels]
+        return domain_tokens
+        
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        
+        domain_prompts = self.minibatch_domain_prompt(minibatches)
+        with DomainPrompt(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+        loss = F.cross_entropy(all_logit, all_y)
+
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.prompt_opt.step()
+        self.optimizer.step()
+
+        return {"loss": loss.item()}
+
+    def predict(self, x):
+        return self.network(x)
