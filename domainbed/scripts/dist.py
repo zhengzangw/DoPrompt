@@ -261,6 +261,7 @@ if __name__ == "__main__":
     if args.restore:
         ckpt = torch.load(args.restore)
         algorithm.load_state_dict(ckpt["model_dict"])
+        print("restored from {}".format(args.restore))
 
     algorithm.eval()
     evals = zip(eval_loader_names, eval_loaders, eval_weights)

@@ -6,7 +6,7 @@ Replicate resnet-50 results:
 
 ```sh
 python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset OfficeHome --test_env 0 \
-     --algorithm ERM --output_dir vit/debug --hparams '{"vit_base_16": 0, "lr": 5e-5, "weight_decay": 1e-4, "resnet_dropout": 0.1}'
+     --algorithm ERM --output_dir vit/resnet_erm_off_a_01/exp --hparams '{"vit_base_16": 0, "lr": 5e-5, "weight_decay": 1e-4}'
 ```
 
 ViT baseline results:
@@ -35,8 +35,8 @@ python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --da
 - DomainNet
 
 ```sh
-python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset DomainNet --test_env 3 \
-     --algorithm ERM --output_dir vit_16_base_result/erm_dn_q_0426_01/exp --hparams '{"lr": 5e-5}'
+python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset DomainNet --test_env 0 \
+     --algorithm ERM --output_dir vit_16_base_result/erm_dn_c_0426_11/exp --hparams '{"lr": 5e-5}' --seed 1
 ```
 
 ## Launch multiple jobs
@@ -107,6 +107,14 @@ python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_
        --datasets OfficeHome \
        --n_trials 3 \
        --hparams '{"lr": 1e-5, "irm_lambda": 0.1, "irm_penalty_anneal_iters": 500}'
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_16_base_result/mixup_off_0426_01 \
+       --algorithms Mixup \
+       --datasets OfficeHome \
+       --n_trials 3 \
+       --hparams '{"lr": 1e-5, "mixup_alpha": 0.2}'
 ```
 
 ## Collect Results

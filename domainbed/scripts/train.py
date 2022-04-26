@@ -189,6 +189,7 @@ if __name__ == "__main__":
     if args.restore:
         ckpt = torch.load(args.restore)
         algorithm.load_state_dict(ckpt["model_dict"])
+        print("restored from {}".format(args.restore))
 
     train_minibatches_iterator = zip(*train_loaders)
     # uda_minibatches_iterator = zip(*uda_loaders)
