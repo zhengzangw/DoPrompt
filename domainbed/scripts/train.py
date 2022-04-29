@@ -190,6 +190,14 @@ if __name__ == "__main__":
         ckpt = torch.load(args.restore)
         algorithm.load_state_dict(ckpt["model_dict"])
         print("restored from {}".format(args.restore))
+        
+    # domain mapping
+    cnt = 0
+    domain_mapping = {x: None for x in args.test_envs}
+    for i in range(len(in_splits)):
+        if i not in args.test_envs:
+            domain_mapping[i] = cnt
+            cnt += 1
 
     train_minibatches_iterator = zip(*train_loaders)
     # uda_minibatches_iterator = zip(*uda_loaders)
@@ -241,7 +249,7 @@ if __name__ == "__main__":
 
             evals = zip(eval_loader_names, eval_loaders, eval_weights)
             for name, loader, weights in evals:
-                acc = misc.accuracy(algorithm, loader, weights, device)
+                acc = misc.accuracy(algorithm, loader, weights, device, name=name, domain=domain_mapping[int(name[3])])
                 results[name+'_acc'] = acc
 
             results['mem_gb'] = torch.cuda.max_memory_allocated() / (1024.*1024.*1024.)

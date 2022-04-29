@@ -149,7 +149,7 @@ def random_pairs_of_minibatches(minibatches):
 
     return pairs
 
-def accuracy(network, loader, weights, device):
+def accuracy(network, loader, weights, device, name=None, domain=None):
     correct = 0
     total = 0
     weights_offset = 0
@@ -159,7 +159,7 @@ def accuracy(network, loader, weights, device):
         for x, y in loader:
             x = x.to(device)
             y = y.to(device)
-            p = network.predict(x)
+            p = network.predict(x, domain=domain)
             if weights is None:
                 batch_weights = torch.ones(len(x))
             else:

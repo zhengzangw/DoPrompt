@@ -82,7 +82,7 @@ class Algorithm(torch.nn.Module):
         """
         raise NotImplementedError
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         raise NotImplementedError
 
 class ERM(Algorithm):
@@ -122,7 +122,7 @@ class ERM(Algorithm):
 
         return {'loss': loss.item()}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.network(x)
 
 
@@ -182,7 +182,7 @@ class Fish(Algorithm):
 
         return {'loss': loss.item()}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.network(x)
 
 
@@ -196,7 +196,7 @@ class ARM(ERM):
         self.context_net = networks.ContextNet(original_input_shape)
         self.support_size = hparams['batch_size']
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         batch_size, c, h, w = x.shape
         if batch_size % self.support_size == 0:
             meta_batch_size = batch_size // self.support_size
@@ -314,7 +314,7 @@ class AbstractDANN(Algorithm):
         self.gen_opt.step()
         return {'loss_gen': gen_loss.item(), 'loss_disc': disc_loss.item()}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.classifier(self.featurizer(x))
 
 class DANN(AbstractDANN):
@@ -885,7 +885,7 @@ class SagNet(Algorithm):
         return {'loss_c': loss_c.item(), 'loss_s': loss_s.item(),
                 'loss_adv': loss_adv.item()}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.network_c(self.network_f(x))
 
 
@@ -1339,7 +1339,7 @@ class Fishr(Algorithm):
             penalty += l2_between_dicts(grads_var_per_domain[domain_id], grads_var)
         return penalty / self.num_domains
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.network(x)
 
 class TRM(Algorithm):
@@ -1501,7 +1501,7 @@ class TRM(Algorithm):
 
         return {'nll': nll, 'trm_loss': loss_swap}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.classifier(self.featurizer(x))
 
     def train(self):
@@ -1788,7 +1788,7 @@ class AbstractCAD(Algorithm):
 
         return {"clf_loss": clf_loss.item(), "bn_loss": bn_loss.item(), "total_loss": total_loss.item()}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         return self.classifier(self.featurizer(x))
 
 
@@ -1862,7 +1862,7 @@ class SMA(ERM, MovingAvg):
         self.update_sma()
         return {"loss": loss.item()}
 
-    def predict(self, x):
+    def predict(self, x, domain=None):
         self.network_sma.eval()
         return self.network_sma(x)
 
@@ -1896,6 +1896,7 @@ class Prompt(ERM):
         ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
         assert self.hparams['vit_base_16'] == True
         
+        self.num_domains = num_domains
         self.domain_prompt_tokens = nn.Parameter(torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02))
         self.prompt_opt = torch.optim.AdamW(
             self.network.parameters(),
@@ -1908,6 +1909,11 @@ class Prompt(ERM):
             torch.full((x.shape[0], ), i, dtype=torch.int64, device="cuda")
             for i, (x, y) in enumerate(minibatches)
         ])
+        domain_tokens = self.domain_prompt_tokens[domain_labels]
+        return domain_tokens
+    
+    def x_domain_prompt(self, x, domain):
+        domain_labels = torch.full((len(x), ), domain, dtype=torch.int64, device="cuda")
         domain_tokens = self.domain_prompt_tokens[domain_labels]
         return domain_tokens
         
@@ -1928,5 +1934,29 @@ class Prompt(ERM):
 
         return {"loss": loss.item()}
 
-    def predict(self, x):
-        return self.network(x)
+    def predict(self, x, domain=None):
+        if domain is None:
+            # === ensemble ===
+            # predictions = []
+            # for i in range(self.num_domains):
+            #     domain_prompts = self.x_domain_prompt(x, i)
+            #     with DomainPrompt(self.featurizer, domain_prompts):
+            #         predictions.append(self.network(x))
+            # predictions = torch.stack(predictions, dim=1)
+            # probs = torch.softmax(predictions, dim=-1)
+            # mean_probs = torch.mean(probs, dim=1)
+            # return mean_probs
+            # === average ===
+            domain_prompts = []
+            for i in range(self.num_domains):
+                domain_prompt = self.x_domain_prompt(x, i)
+                domain_prompts.append(domain_prompt)
+            domain_prompts = torch.stack(domain_prompts, dim=1).mean(dim=1)
+            with DomainPrompt(self.featurizer, domain_prompts):
+                all_logit = self.network(x)
+            return all_logit
+        else:
+            domain_prompts = self.x_domain_prompt(x, domain)
+            with DomainPrompt(self.featurizer, domain_prompts):
+                all_logit = self.network(x)
+            return all_logit
