@@ -52,6 +52,7 @@ ALGORITHMS = [
     'CondCAD',
     'SMA',
     'Prompt',
+    'PromptComb',
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -1871,11 +1872,16 @@ class DomainPrompt():
     def __init__(self, network, domain_token):
         self.featurizer = network
         self.domain_tokens = domain_token
+        self.pos_embeddings = self.featurizer.network.encoder.pos_embedding
         
     def add_domain_prompt(self):
         domain_tokens = self.domain_tokens
+        pos_embeddings = self.pos_embeddings
         def _add_domain_prompt(model, x):
             act = x[0]
+            # t = pos_embeddings[0][0].expand(*domain_tokens.shape[:2], pos_embeddings.shape[-1])
+            # domain_tokens_with_pos = domain_tokens + t
+            # x_new = torch.cat([domain_tokens_with_pos, act], dim=1)
             x_new = torch.cat([domain_tokens, act], dim=1)
             return (x_new, )
         return _add_domain_prompt
@@ -1897,10 +1903,26 @@ class Prompt(ERM):
         assert self.hparams['vit_base_16'] == True
         
         self.num_domains = num_domains
-        self.domain_prompt_tokens = nn.Parameter(torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02))
+        self.mode = self.hparams['mode']
+        # 1: ensemble
+        # 2: average
+        
+        class_token_const = self.featurizer.network.class_token.clone().detach()
+        cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
+        self.domain_prompt_tokens = nn.Parameter(
+            torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02).add_(class_token_const).add_(cls_pos_token_const)
+        )
+        
         self.prompt_opt = torch.optim.AdamW(
-            self.network.parameters(),
+            [self.domain_prompt_tokens],
             lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+        
+        self.domain_prompt_bias = nn.Parameter(torch.empty(num_domains).fill_(1/num_domains))
+        self.bias_opt = torch.optim.AdamW(
+            [self.domain_prompt_bias],
+             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']
         )
         
@@ -1937,26 +1959,66 @@ class Prompt(ERM):
     def predict(self, x, domain=None):
         if domain is None:
             # === ensemble ===
-            # predictions = []
-            # for i in range(self.num_domains):
-            #     domain_prompts = self.x_domain_prompt(x, i)
-            #     with DomainPrompt(self.featurizer, domain_prompts):
-            #         predictions.append(self.network(x))
-            # predictions = torch.stack(predictions, dim=1)
-            # probs = torch.softmax(predictions, dim=-1)
-            # mean_probs = torch.mean(probs, dim=1)
-            # return mean_probs
+            if self.mode == 1:
+                predictions = []
+                for i in range(self.num_domains):
+                    domain_prompts = self.x_domain_prompt(x, i)
+                    with DomainPrompt(self.featurizer, domain_prompts):
+                        predictions.append(self.network(x))
+                predictions = torch.stack(predictions, dim=1)
+                probs = torch.softmax(predictions, dim=-1)
+                mean_probs = torch.mean(probs, dim=1)
+                return mean_probs
             # === average ===
-            domain_prompts = []
-            for i in range(self.num_domains):
-                domain_prompt = self.x_domain_prompt(x, i)
-                domain_prompts.append(domain_prompt)
-            domain_prompts = torch.stack(domain_prompts, dim=1).mean(dim=1)
-            with DomainPrompt(self.featurizer, domain_prompts):
-                all_logit = self.network(x)
-            return all_logit
+            elif self.mode == 2:
+                domain_prompts = []
+                for i in range(self.num_domains):
+                    domain_prompt = self.x_domain_prompt(x, i)
+                    domain_prompts.append(domain_prompt)
+                domain_prompts = torch.stack(domain_prompts, dim=1).mean(dim=1)
+                with DomainPrompt(self.featurizer, domain_prompts):
+                    all_logit = self.network(x)
+                return all_logit
         else:
             domain_prompts = self.x_domain_prompt(x, domain)
             with DomainPrompt(self.featurizer, domain_prompts):
                 all_logit = self.network(x)
             return all_logit
+
+
+class PromptComb(Prompt):
+    def x_domain_prompt_comb(self, x):
+        comb_prompt = self.domain_prompt_tokens * self.domain_prompt_bias[..., None, None]
+        comb_prompt = comb_prompt.mean(0)
+        comb_prompt = comb_prompt.view(1, *comb_prompt.shape).repeat(x.shape[0], 1, 1)
+        return comb_prompt
+    
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        domain_prompts = self.minibatch_domain_prompt(minibatches)
+        combin_prompts = self.x_domain_prompt_comb(all_x)
+        
+        all_x = torch.cat([all_x, all_x])
+        all_y = torch.cat([all_y, all_y])
+        prompts = torch.cat([domain_prompts, combin_prompts])
+        
+        with DomainPrompt(self.featurizer, prompts):
+            all_logit = self.network(all_x)
+        loss = F.cross_entropy(all_logit, all_y)
+
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        self.bias_opt.zero_grad()
+        loss.backward()
+        self.prompt_opt.step()
+        self.optimizer.step()
+        self.bias_opt.step()
+
+        return {"loss": loss.item()}
+    
+    def predict(self, x, domain=None):
+        combin_prompts = self.x_domain_prompt_comb(x)
+        with DomainPrompt(self.featurizer, combin_prompts):
+            all_logit = self.network(x)
+        return all_logit

@@ -16,6 +16,9 @@ ViT baseline results:
 ```sh
 python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset OfficeHome --test_env 1 \
      --algorithm SMA --output_dir vit_16_base_result/sma_off_c_0427_01/exp --hparams '{"lr": 1e-5}'
+
+python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset OfficeHome --test_env 0 \
+     --algorithm Prompt --output_dir vit_prompt/off_0429_01 --hparams '{"lr": 1e-5}'
 ```
 
 - PACS
@@ -86,11 +89,11 @@ python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_
 
 python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
        --steps 5001 --single_test_envs --n_hparams 1 \
-       --output_dir=vit_16_base_result/cdann_dn_0428_01 \
+       --output_dir=vit_16_base_result/cdann_dn_0430_01 \
        --algorithms CDANN \
        --datasets DomainNet \
        --n_trials 3 \
-       --hparams '{"lr": 5e-5, "lambda": 0.1, "mlp_width": 768, "mlp_layer": 2}'
+       --hparams '{"lr": 1e-5, "lambda": 0.1, "mlp_width": 768, "mlp_layer": 2}'
 
 python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
        --steps 5001 --single_test_envs --n_hparams 1 \
@@ -110,11 +113,11 @@ python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_
 
 python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
        --steps 5001 --single_test_envs --n_hparams 1 \
-       --output_dir=vit_16_base_result/irm_dn_0428_01 \
+       --output_dir=vit_16_base_result/irm_dn_0430_01 \
        --algorithms IRM \
        --datasets DomainNet \
        --n_trials 3 \
-       --hparams '{"lr": 5e-5, "irm_lambda": 0.1, "irm_penalty_anneal_iters": 500}'
+       --hparams '{"lr": 1e-5, "irm_lambda": 0.1, "irm_penalty_anneal_iters": 500}'
 
 python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
        --steps 5001 --single_test_envs --n_hparams 1 \
