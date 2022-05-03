@@ -27,3 +27,8 @@ class GradientReverse(torch.autograd.Function):
 def grad_reverse(x, scale=1.0):
     GradientReverse.scale = scale
     return GradientReverse.apply(x)
+
+
+@torch.no_grad()
+def net_dist(net1, net2):
+    return sum([torch.dist(x.cpu(), y.cpu()) for x, y in zip(net1.parameters(), net2.parameters())])
