@@ -25,6 +25,8 @@ from domainbed.lib.torchmisc import dataloader
 
 @torch.no_grad()
 def cal_feat_mean(network, loader, weights, device):
+    network.featurizer.network.encoder.layers = network.featurizer.network.encoder.layers[:1]
+    
     feat_cls_mean = torch.zeros(network.num_classes, network.featurizer.n_outputs).cuda()
     feat_cls_cnt = torch.zeros(network.num_classes).cuda()
     feat_mean = torch.zeros(network.featurizer.n_outputs).cuda()

@@ -130,7 +130,7 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('is_flipped', True, lambda r: True)
         
     elif "Prompt" in algorithm:
-        _hparam('mode', 0, lambda r: 0)
+        _hparam('eval_mode', 0, lambda r: 0)
         _hparam('prompt_dim', 20, lambda r: 20)
         _hparam('lr_prompt', 1.0, lambda r: 1.0)
 
