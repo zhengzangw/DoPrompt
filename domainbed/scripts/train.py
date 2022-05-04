@@ -188,8 +188,10 @@ if __name__ == "__main__":
     
     if args.restore:
         ckpt = torch.load(args.restore)
-        algorithm.load_state_dict(ckpt["model_dict"])
+        missing_keys, unexpected_keys = algorithm.load_state_dict(ckpt["model_dict"], strict=False)
         print("restored from {}".format(args.restore))
+        print("missing keys: {}".format(missing_keys))
+        print("unexpected keys: {}".format(unexpected_keys))
         
     # domain mapping
     cnt = 0

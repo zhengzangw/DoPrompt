@@ -2099,3 +2099,47 @@ class DomainPrompt_CombLinear(DomainPrompt):
         return all_logit
 
 
+class DomainPrompt_CombAttn(DomainPrompt):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        self.attn = networks.EncoderBlock(
+            num_heads=12,
+            hidden_dim=768,
+            mlp_dim=3072,
+        )
+        self.attn_opt = torch.optim.AdamW(
+            self.attn.parameters(),
+            lr=self.hparams["lr_prompt"],
+            weight_decay=self.hparams['weight_decay']
+        )
+        
+    def learned_prompt(self, all_x):
+        processed_input = self.featurizer.network._process_input(all_x)
+        prompt_tokens = self.prompt_tokens.reshape(-1, 768).expand(processed_input.shape[0], -1, -1)
+        x = torch.cat([processed_input, prompt_tokens], dim=1)
+        out = self.attn(x)
+        learned_prompt = out[:, :self.num_domains * self.hparams["prompt_dim"]].reshape(-1, self.num_domains, self.hparams["prompt_dim"], 768).mean(dim=1)
+        return learned_prompt
+    
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        
+        # learn prompt
+        learned_prompt = self.learned_prompt(all_x)
+        with PrependPrompt(self.featurizer, learned_prompt):
+            all_logit = self.network(all_x)
+        loss = F.cross_entropy(all_logit, all_y)
+        
+        self.attn_opt.zero_grad()
+        loss.backward()
+        self.attn_opt.step()
+        
+        return {"loss": loss.item()}
+        
+    def predict(self, x, domain=None):
+        learned_prompt = self.learned_prompt(x)
+        with PrependPrompt(self.featurizer, learned_prompt):
+            all_logit = self.network(x)
+        return all_logit
+        
