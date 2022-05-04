@@ -1973,7 +1973,7 @@ class DomainPrompt(ERM):
         assert self.hparams['vit_base_16'] == True
         
         self.num_domains = num_domains
-        self.eval_mode = self.hparams['mode']
+        self.eval_mode = self.hparams['eval_mode']
         assert self.eval_mode in [1, 2] # 1: ensemble, 2: average
         
         # init prompt embedding
@@ -2022,7 +2022,7 @@ class DomainPrompt(ERM):
     def predict(self, x, domain=None):
         if domain is None:
             # === ensemble ===
-            if self.mode == 1:
+            if self.eval_mode == 1:
                 predictions = []
                 for i in range(self.num_domains):
                     domain_prompts = self.x_domain_prompt(x, i)
@@ -2033,7 +2033,7 @@ class DomainPrompt(ERM):
                 mean_probs = torch.mean(probs, dim=1)
                 return mean_probs
             # === average ===
-            elif self.mode == 2:
+            elif self.eval_mode == 2:
                 domain_prompts = []
                 for i in range(self.num_domains):
                     domain_prompt = self.x_domain_prompt(x, i)
@@ -2049,47 +2049,46 @@ class DomainPrompt(ERM):
             return all_logit
 
 
-class PromptComb(DomainPrompt):
+class DomainPrompt_CombLinear(DomainPrompt):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super().__init__(input_shape, num_classes, num_domains, hparams)
-        self.domain_prompt_bias = nn.Parameter(torch.empty(num_domains).fill_(1/num_domains))
+        self.global_iter = 0
+        self.domain_prompt_bias = nn.Parameter(torch.empty(num_domains, hparams['prompt_dim']).fill_(1.0))
+        
         self.bias_opt = torch.optim.AdamW(
             [self.domain_prompt_bias],
              lr=self.hparams["lr_prompt"],
             weight_decay=self.hparams['weight_decay']
         )
-        
-        
+          
     def x_domain_prompt_comb(self, x):
-        comb_prompt = self.prompt_tokens * self.domain_prompt_bias[..., None, None]
+        comb_prompt = self.prompt_tokens * self.domain_prompt_bias[..., None]
         comb_prompt = comb_prompt.mean(0)
-        comb_prompt = comb_prompt.view(1, *comb_prompt.shape).repeat(x.shape[0], 1, 1)
+        comb_prompt = comb_prompt[None, ...].repeat(x.shape[0], 1, 1)
         return comb_prompt
     
+    def log_bias(self):
+        self.global_iter += 1
+        if self.global_iter % 100 == 0:
+            bias_list = [[f'{x:0.2f}' for x in i] for i in list(zip(*self.domain_prompt_bias.tolist()))]
+            print(f"log_bias: {bias_list}")
+    
     def update(self, minibatches, unlabeled=None):
+        self.network.eval()
+        self.network.requires_grad_(False)
+        
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
-        
-        domain_prompts = self.minibatch_domain_prompt(minibatches)
         combin_prompts = self.x_domain_prompt_comb(all_x)
-        prompt_mask = (torch.randn(len(all_x)) < 0.8).view(-1, 1 ,1).float().cuda()
 
-        prompts = domain_prompts * prompt_mask + combin_prompts * (1 - prompt_mask)
-        with PrependPrompt(self.featurizer, prompts):
+        with PrependPrompt(self.featurizer, combin_prompts):
             all_logit = self.network(all_x)
-        loss = F.cross_entropy(all_logit, all_y, reduction="none")
+        loss = F.cross_entropy(all_logit, all_y)
         
-        loss_domain = (loss * prompt_mask).sum() / (prompt_mask.sum() + 1e-8)
-        loss_combin = (loss * (1 - prompt_mask)).sum() / (len(all_x) - prompt_mask.sum() + 1e-8)
-        loss = loss_domain + loss_combin
-        
-        self.prompt_opt.zero_grad()
-        self.optimizer.zero_grad()
         self.bias_opt.zero_grad()
         loss.backward()
-        self.prompt_opt.step()
-        self.optimizer.step()
         self.bias_opt.step()
+        self.log_bias()
         
         return {"loss": loss.item()}
     
