@@ -1,5 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
+import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,7 +21,7 @@ from domainbed import networks
 from domainbed.lib.misc import (
     random_pairs_of_minibatches, ParamDict, MovingAverage, l2_between_dicts
 )
-from domainbed.lib.torchmisc import grad_reverse, net_dist
+from domainbed.lib.torchmisc import grad_reverse, net_dist, GradualWarmupScheduler, get_lr
 
 
 ALGORITHMS = [
@@ -134,7 +135,7 @@ class ERM(Algorithm):
             self.optimizer = optimizer(
                 [
                     {'params': self.featurizer.parameters(), 'lr': self.hparams["lr"]},
-                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
+                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': 1e-5}
                 ],
                 weight_decay=self.hparams['weight_decay']
             )
@@ -143,7 +144,7 @@ class ERM(Algorithm):
                 [
                     {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
                 ],
-                weight_decay=self.hparams['weight_decay']
+                weight_decay=1e-5
             )
         
     def update(self, minibatches, unlabeled=None):
@@ -273,7 +274,7 @@ class AbstractDANN(Algorithm):
         # Optimizers
         self.disc_opt = torch.optim.Adam(
             (list(self.discriminator.parameters()) + list(self.class_embeddings.parameters()) + list(self.classifier.parameters())),
-            lr=self.hparams["classifier_lr"],
+            lr=self.hparams["lr_classifier"],
             weight_decay=self.hparams['weight_decay'],
             betas=(self.hparams['beta1'], 0.9)
         )
@@ -1902,6 +1903,17 @@ class SMA(ERM, MovingAvg):
 
 # Ours
 
+class Linear(ERM):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        self.optimizer = torch.optim.SGD(
+            self.classifier.parameters(),
+            lr=self.hparams["lr_classifier"],
+            weight_decay=self.hparams['weight_decay'],
+            momentum=0.9
+        )
+
+
 class PrependPrompt():
     def __init__(self, network, domain_token):
         self.featurizer = network
@@ -1929,16 +1941,16 @@ class Prompt(ERM):
         assert self.hparams['vit_base_16'] == True
         
         # init prompt embedding
-        class_token_const = self.featurizer.network.class_token.clone().detach()
-        cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
+        # class_token_const = self.featurizer.network.class_token.clone().detach()
+        # cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
         self.prompt_tokens = nn.Parameter(
-            torch.empty(1, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02).add_(class_token_const).add_(cls_pos_token_const)
+            torch.empty(1, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02)#.add_(class_token_const).add_(cls_pos_token_const)
         )
         
         self.prompt_opt = torch.optim.AdamW(
             [self.prompt_tokens],
             lr=self.hparams["lr_prompt"],
-            weight_decay=self.hparams['weight_decay']
+            weight_decay=1e-5
         )
         
     def update(self, minibatches, unlabeled=None):
@@ -1965,6 +1977,22 @@ class Prompt(ERM):
         return all_logit
 
 
+class LinearPrompt(Prompt):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        self.optimizer = torch.optim.SGD(
+            self.classifier.parameters(),
+            lr=self.hparams["lr_classifier"],
+            weight_decay=self.hparams['weight_decay'],
+            momentum=0.9
+        )
+        self.prompt_opt = torch.optim.SGD(
+            [self.prompt_tokens],
+            lr=self.hparams["lr_prompt"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+
 class DomainPrompt(ERM):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
@@ -1975,10 +2003,10 @@ class DomainPrompt(ERM):
         assert self.eval_mode in [1, 2] # 1: ensemble, 2: average
         
         # init prompt embedding
-        class_token_const = self.featurizer.network.class_token.clone().detach()
-        cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
+        # class_token_const = self.featurizer.network.class_token.clone().detach()
+        # cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
         self.prompt_tokens = nn.Parameter(
-            torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02).add_(class_token_const).add_(cls_pos_token_const)
+            torch.empty(num_domains + 1, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02)#.add_(class_token_const).add_(cls_pos_token_const)
         )
         
         self.prompt_opt = torch.optim.AdamW(
@@ -2172,7 +2200,7 @@ class DoPrompt(ERM):
         # init prompt
         class_token_const = self.featurizer.network.class_token.clone().detach()
         cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
-        self.prompt_tokens = nn.Parameter(
+        self.domain_prompt_tokens = nn.Parameter(
             torch.empty(1, 1, self.featurizer.network.hidden_dim).normal_(std=0.02).add_(class_token_const).add_(cls_pos_token_const)
         )
         
@@ -2235,4 +2263,518 @@ class DoPrompt(ERM):
         img_feat = feature_dict['feats'][:, :1]
         with PrependPrompt(self.featurizer, img_feat):
             all_logit = self.network(x)
+        return all_logit
+
+
+class Prompt_DANN(Prompt):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        # self.discriminator = networks.Classifier(self.featurizer.n_outputs,
+        #     num_domains, self.hparams)
+        # self.disc_opt = torch.optim.Adam(
+        #     self.discriminator.parameters(),
+        #     lr=self.hparams["lr_classifier"],
+        #     # weight_decay=self.hparams['weight_decay'],
+        #     betas=(0.5, 0.9)
+        # )
+        self.prompt_opt = torch.optim.AdamW(
+            [self.prompt_tokens],
+            lr=self.hparams["lr_prompt"],
+            weight_decay=self.hparams['weight_decay']
+        )
+        self.optimizer = torch.optim.AdamW(
+            [
+                {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
+            ],
+            weight_decay=self.hparams['weight_decay']
+        )
+        
+    # def update(self, minibatches, unlabeled=None):
+    #     all_x = torch.cat([x for x, y in minibatches])
+    #     all_y = torch.cat([y for x, y in minibatches])
+        
+    #     domain_prompts = self.prompt_tokens.repeat(len(all_x), 1, 1)
+    #     with PrependPrompt(self.featurizer, domain_prompts):
+    #         all_z = self.featurizer(all_x)
+    #     # ce loss
+    #     all_logit = self.classifier(all_z)
+    #     ce_loss = F.cross_entropy(all_logit, all_y)
+    #     # disc loss
+    #     disc_out = self.discriminator(grad_reverse(all_z))
+    #     disc_labels = torch.cat([
+    #         torch.full((x.shape[0], ), i, dtype=torch.int64, device=all_x.device)
+    #         for i, (x, y) in enumerate(minibatches)
+    #     ])
+    #     disc_loss = F.cross_entropy(disc_out, disc_labels)
+    #     # loss
+    #     loss = ce_loss + self.hparams['lambda'] * disc_loss
+
+    #     self.prompt_opt.zero_grad()
+    #     self.optimizer.zero_grad()
+    #     self.disc_opt.zero_grad()
+    #     loss.backward()
+    #     self.prompt_opt.step()
+    #     self.optimizer.step()
+    #     self.disc_opt.step()
+
+    #     return {"loss_ce": ce_loss.item(), "loss_disc": disc_loss.item()}
+    
+
+class PrependPromptDeep():
+    def __init__(self, network, domain_token):
+        self.featurizer = network
+        self.deep_domain_tokens = domain_token
+        self.encoder_layers = self.featurizer.network.encoder.layers
+        self.num_layers = len(self.encoder_layers)
+        self.hooks = []
+        
+    def add_domain_prompt(self, layer_id):
+        domain_tokens = self.deep_domain_tokens[layer_id]
+        prompt_dim = domain_tokens.shape[1]
+        def _add_domain_prompt(model, x):
+            act = x[0]
+            if layer_id > 0:
+                act = act[:, :-prompt_dim]
+            x_new = torch.cat([act, domain_tokens], dim=1)
+            return (x_new, )
+        return _add_domain_prompt
+
+    def __enter__(self):
+        for i in range(self.num_layers):
+            self.hooks.append(self.encoder_layers[i].register_forward_pre_hook(self.add_domain_prompt(i)))
+        
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        for hook in self.hooks:
+            hook.remove()
+
+
+    
+class PromptDeep(ERM):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        assert self.hparams['vit_base_16'] == True
+        self.global_iter = 0
+        
+        self.num_layers = len(self.featurizer.network.encoder.layers)
+        self.hidden_dim = self.featurizer.network.hidden_dim
+        self.deep_prompt_tokens = nn.ParameterList()
+        for _ in range(self.num_layers):
+            prompt_tokens = nn.Parameter(
+                torch.empty(1, hparams['prompt_dim'], self.hidden_dim).normal_(std=0.02)
+            )
+            self.deep_prompt_tokens.append(prompt_tokens)
+        
+        self.optimizer = torch.optim.AdamW(
+            self.classifier.parameters(),
+            lr=self.hparams["lr_classifier"],
+            weight_decay=self.hparams['weight_decay'],
+        )
+        self.prompt_opt = torch.optim.AdamW(
+            self.deep_prompt_tokens,
+            lr=self.hparams["lr_prompt"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def update(self, minibatches, unlabeled=None):
+        # self.featurizer.eval()
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        
+        domain_prompts = [x.repeat(len(all_x), 1, 1) for x in self.deep_prompt_tokens]
+        with PrependPromptDeep(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+        loss = F.cross_entropy(all_logit, all_y)
+
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.prompt_opt.step()
+        self.optimizer.step()
+
+        return {"loss": loss.item()}
+    
+    def predict(self, x, domain=None):
+        domain_prompts = [t.repeat(len(x), 1, 1) for t in self.deep_prompt_tokens]
+        with PrependPromptDeep(self.featurizer, domain_prompts):
+            all_logit = self.network(x)
+        return all_logit
+
+
+class PromptDeep_DANN(PromptDeep):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        self.discriminator = networks.Classifier(self.featurizer.n_outputs,
+            num_domains, self.hparams)
+        self.disc_opt = torch.optim.Adam(
+            self.discriminator.parameters(),
+            lr=self.hparams["lr_classifier"],
+            weight_decay=self.hparams['weight_decay'],
+            betas=(0.5, 0.9)
+        )
+        
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        
+        domain_prompts = [x.repeat(len(all_x), 1, 1) for x in self.deep_prompt_tokens]
+        with PrependPromptDeep(self.featurizer, domain_prompts):
+            all_z = self.featurizer(all_x)
+        # ce loss
+        all_logit = self.classifier(all_z)
+        ce_loss = F.cross_entropy(all_logit, all_y)
+        # disc loss
+        disc_out = self.discriminator(grad_reverse(all_z))
+        disc_labels = torch.cat([
+            torch.full((x.shape[0], ), i, dtype=torch.int64, device=all_x.device)
+            for i, (x, y) in enumerate(minibatches)
+        ])
+        disc_loss = F.cross_entropy(disc_out, disc_labels)
+        # loss
+        loss = ce_loss + self.hparams['lambda'] * disc_loss
+
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        self.disc_opt.zero_grad()
+        loss.backward()
+        self.prompt_opt.step()
+        self.optimizer.step()
+        self.disc_opt.step()
+
+        return {"loss_ce": ce_loss.item(), "loss_disc": disc_loss.item()}
+    
+    
+class DomainPromptDeep(ERM):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        self.eval_mode = self.hparams['eval_mode']
+        assert self.hparams['vit_base_16'] == True
+        assert self.eval_mode == 1
+        
+        self.num_layers = len(self.featurizer.network.encoder.layers)
+        self.hidden_dim = self.featurizer.network.hidden_dim
+        self.num_domains = num_domains
+        self.deep_prompt_tokens = nn.ParameterList()
+        for _ in range(self.num_layers):
+            prompt_tokens = nn.Parameter(
+                torch.empty(num_domains, hparams['prompt_dim'], self.hidden_dim).normal_(std=0.02)
+            )
+            self.deep_prompt_tokens.append(prompt_tokens)
+            
+        self.optimizer = torch.optim.AdamW(
+            self.classifier.parameters(),
+            lr=self.hparams["lr_classifier"],
+            weight_decay=self.hparams['weight_decay'],
+        )
+        self.prompt_opt = torch.optim.AdamW(
+            self.deep_prompt_tokens,
+            lr=self.hparams["lr_prompt"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        
+        domain_prompts = self.minibatch_domain_prompt(minibatches)
+        with PrependPromptDeep(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+        loss = F.cross_entropy(all_logit, all_y)
+
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.prompt_opt.step()
+        self.optimizer.step()
+
+        return {"loss": loss.item()}
+    
+    def minibatch_domain_prompt(self, minibatches):
+        domain_labels = torch.cat([
+            torch.full((x.shape[0], ), i, dtype=torch.int64, device="cuda")
+            for i, (x, y) in enumerate(minibatches)
+        ])
+        domain_tokens = [x[domain_labels] for x in self.deep_prompt_tokens]
+        return domain_tokens
+    
+    def x_domain_prompt(self, x, domain):
+        domain_labels = torch.full((len(x), ), domain, dtype=torch.int64, device="cuda")
+        domain_tokens = [x[domain_labels] for x in self.deep_prompt_tokens]
+        return domain_tokens
+    
+    def predict(self, x, domain=None):
+        if domain is None:
+            # === ensemble ===
+            if self.eval_mode == 1:
+                predictions = []
+                for i in range(self.num_domains):
+                    domain_prompts = self.x_domain_prompt(x, i)
+                    with PrependPromptDeep(self.featurizer, domain_prompts):
+                        predictions.append(self.network(x))
+                predictions = torch.stack(predictions, dim=1)
+                probs = torch.softmax(predictions, dim=-1)
+                mean_probs = torch.mean(probs, dim=1)
+                return mean_probs
+            # === average ===
+            elif self.eval_mode == 2:
+                domain_prompts = []
+                for i in range(self.num_domains):
+                    domain_prompt = self.x_domain_prompt(x, i)
+                    domain_prompts.append(domain_prompt)
+                domain_prompts = torch.stack(domain_prompts, dim=1).mean(dim=1)
+                with PrependPromptDeep(self.featurizer, domain_prompts):
+                    all_logit = self.network(x)
+                return all_logit
+        else:
+            domain_prompts = self.x_domain_prompt(x, domain)
+            with PrependPromptDeep(self.featurizer, domain_prompts):
+                all_logit = self.network(x)
+            return all_logit
+        
+        
+class PADA(ERM):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
+        assert self.hparams['vit_base_16'] == True
+        
+        # self.optimizer = torch.optim.AdamW(
+        #     self.classifier.parameters(),
+        #     lr=self.hparams["lr_classifier"],
+        #     weight_decay=self.hparams['weight_decay'],
+        # )
+        if self.hparams["lr"] > 0:
+            self.optimizer = torch.optim.AdamW(
+                [
+                    {'params': self.featurizer.parameters(), 'lr': self.hparams["lr"]},
+                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': 1e-5},
+                ],
+                weight_decay=self.hparams['weight_decay']
+            )
+        else:
+            self.optimizer = torch.optim.AdamW(
+                [
+                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
+                ],
+                weight_decay=self.hparams['weight_decay']
+            )
+        
+        self.hidden_dim = self.featurizer.network.hidden_dim
+        self.mlp_dim = self.featurizer.network.mlp_dim
+        # self.prompt_tokens = nn.Parameter(
+        #     torch.empty(1, hparams['prompt_dim'], self.hidden_dim).normal_(std=0.02)
+        # )
+        self.prompt_tokens = nn.Parameter(
+            torch.empty(1, 1, self.hidden_dim).normal_(std=0.02)
+        )
+        self.prompt_opt = torch.optim.AdamW(
+            [self.prompt_tokens],
+            lr=self.hparams["lr_prompt"],
+            # weight_decay=self.hparams['weight_decay']
+            weight_decay=1e-5
+        )
+        self.decoder = networks.MLPBlock(self.hidden_dim, self.mlp_dim)
+        self.decoder_opt = torch.optim.AdamW(
+            [self.prompt_tokens],
+            lr=self.hparams["lr_prompt"],
+            # weight_decay=self.hparams['weight_decay']
+            weight_decay=1e-5
+        )
+        
+        self.discriminator = networks.Classifier(self.featurizer.n_outputs,
+            num_domains, self.hparams)
+        self.disc_opt = torch.optim.AdamW(
+            self.discriminator.parameters(),
+            lr=self.hparams["lr_classifier"],
+            # weight_decay=self.hparams['weight_decay'],
+            weight_decay=1e-5
+        )
+        
+        self.featurizer.network.encoder.register_forward_hook(get_features('feats', feature_dict))
+        
+    def forward_first(self, all_x):
+        # first pass
+        domain_prompts = self.prompt_tokens.repeat(len(all_x), 1, 1)
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_z = self.featurizer(all_x)
+        all_disc = self.discriminator(all_z)
+        return all_disc
+    
+    def forward_second(self, all_x):
+        # second pass
+        feat = feature_dict['feats'].detach()
+        img_feat = feat[:, -1:]
+        domain_tokens = self.decoder(img_feat)
+        with PrependPrompt(self.featurizer, domain_tokens):
+            all_logit = self.network(all_x)
+        return all_logit
+        
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        disc_labels = torch.cat([
+            torch.full((x.shape[0], ), i, dtype=torch.int64, device=all_x.device)
+            for i, (x, y) in enumerate(minibatches)
+        ])
+        
+        # first pass
+        all_disc = self.forward_first(all_x)
+        loss_disc = F.cross_entropy(all_disc, disc_labels)
+        self.prompt_opt.zero_grad()
+        self.disc_opt.zero_grad()
+        loss_disc.backward()
+        self.prompt_opt.step()
+        self.disc_opt.step()
+        
+        # second pass
+        all_logit = self.forward_second(all_x)
+        loss = F.cross_entropy(all_logit, all_y)
+        self.optimizer.zero_grad()
+        self.decoder_opt.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.decoder_opt.step()
+
+        return {"loss": loss.item(), "loss_disc": loss_disc.item()}
+
+    def predict(self, x, domain=None):
+        self.forward_first(x)
+        all_logit = self.forward_second(x)
+        return all_logit
+    
+
+class MyPrompt(DomainPrompt):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super().__init__(input_shape, num_classes, num_domains, hparams)
+        
+        self.hidden_dim = self.featurizer.network.hidden_dim
+        self.prompt_dim = self.hparams['prompt_dim']
+        linear = nn.Linear(self.hidden_dim, num_domains * self.prompt_dim)
+        act = nn.ReLU()
+        self.project = nn.Sequential(linear, act)
+        self.project_opt = torch.optim.AdamW(
+            self.project.parameters(),
+            lr=self.hparams["lr_classifier"],
+            weight_decay=1e-5
+        )
+        
+    def x_domain_prompt_comb(self, all_bias):
+        prompt_tokens = self.prompt_tokens[:-1]
+        tokens = prompt_tokens[None, ...]
+        bias = all_bias[..., None]
+        comb_prompt = tokens * bias
+        comb_prompt = comb_prompt.sum(dim=1)
+        return comb_prompt
+        
+    def update(self, minibatches, unlabeled=None):
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        self.project_opt.zero_grad()
+        
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        
+        # first pass
+        domain_prompts = self.minibatch_domain_prompt(minibatches)
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_z = self.featurizer(all_x)
+        all_logit = self.classifier(all_z)
+        loss_1 = F.cross_entropy(all_logit, all_y)
+        loss_1.backward()
+        
+        # second pass
+        hint = all_z.detach()
+        all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
+        all_bias = F.softmax(all_bias, dim=1)
+        domain_prompts = self.x_domain_prompt_comb(all_bias)
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+        loss_2 = F.cross_entropy(all_logit, all_y)
+        loss_2.backward()
+        
+        self.prompt_opt.step()
+        self.optimizer.step()
+        self.project_opt.step()
+
+        return {"loss_1": loss_1.item(), "loss_2": loss_2.item()}
+    
+
+class MyPrompt2(MyPrompt):
+    
+    def forward_first(self, all_x):
+        domain_prompts = self.x_domain_prompt(all_x, -1)
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_z = self.featurizer(all_x)
+        all_logit = self.classifier(all_z)
+        return all_z, all_logit
+    
+    def forward_second(self, all_x, all_z):
+        hint = all_z.detach()
+        all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
+        all_bias = F.softmax(all_bias, dim=1)
+        domain_prompts = self.x_domain_prompt_comb(all_bias)
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+        return all_logit
+        
+    def update(self, minibatches, unlabeled=None):
+        self.prompt_opt.zero_grad()
+        self.optimizer.zero_grad()
+        self.project_opt.zero_grad()
+        
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+
+        # first pass
+        all_z, all_logit = self.forward_first(all_x)
+        loss_1 = F.cross_entropy(all_logit, all_y)
+        loss_1.backward()
+        
+        # second pass
+        target_domain = random.randint(0, self.num_domains - 1)
+        start_ind = self.hparams['batch_size'] * target_domain
+        end_ind = start_ind + self.hparams['batch_size']
+        domain_prompts_list = []
+        
+        # second pass
+        for i, (x, y) in enumerate(minibatches):
+            if i != target_domain:
+                domain_p = self.x_domain_prompt(x, i)
+            else:
+                hint = all_z.detach()[start_ind : end_ind]
+                all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
+                all_bias = F.softmax(all_bias, dim=1)
+                domain_p = self.x_domain_prompt_comb(all_bias)
+            domain_prompts_list.append(domain_p)
+        domain_prompts = torch.cat(domain_prompts_list, dim=0)
+        
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+            
+        # --- Loss 2 ---
+        # loss_2 = F.cross_entropy(all_logit, all_y)
+        # loss_2.backward()
+        # --- Loss 2 & 3 ---
+        masks = []
+        for i, (x, y) in enumerate(minibatches):
+            if i != target_domain:
+                masks.append(torch.ones(len(x)))
+            else:
+                masks.append(torch.zeros(len(x)))
+        mask = torch.cat(masks).bool().to(all_x.device)
+        loss = F.cross_entropy(all_logit, all_y, reduction="none")
+        loss_2 = loss[mask].sum() / mask.sum()
+        loss_3 = loss[~mask].sum() / (len(mask) - mask.sum())
+        (loss_2 + loss_3).backward()
+        
+        self.prompt_opt.step()
+        self.optimizer.step()
+        self.project_opt.step()
+
+        # return {"loss_1": loss_1.item(), "loss_2": loss_2.item()}
+        return {"loss_1": loss_1.item(), "loss_2": loss_2.item(), "loss_3": loss_3.item()}
+    
+    def predict(self, x, domain=None):
+        # first pass
+        all_z, _ = self.forward_first(x)
+        # second pass
+        all_logit = self.forward_second(x, all_z)
         return all_logit

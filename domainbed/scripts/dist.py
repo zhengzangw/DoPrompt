@@ -21,11 +21,12 @@ from domainbed import hparams_registry
 from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.torchmisc import dataloader
+from domainbed.algorithms import PrependPrompt, PrependPromptDeep
 
 
 @torch.no_grad()
-def cal_feat_mean(network, loader, weights, device):
-    network.featurizer.network.encoder.layers = network.featurizer.network.encoder.layers[:1]
+def cal_feat_mean(network, loader, weights, device, domain=None, algorithm=None):
+    # network.featurizer.network.encoder.layers = network.featurizer.network.encoder.layers[:1]
     
     feat_cls_mean = torch.zeros(network.num_classes, network.featurizer.n_outputs).cuda()
     feat_cls_cnt = torch.zeros(network.num_classes).cuda()
@@ -34,7 +35,33 @@ def cal_feat_mean(network, loader, weights, device):
     for x, y in loader:
         x = x.to(device)
         y = y.to(device)
-        feat = network.featurizer(x)
+        
+        if algorithm == "DomainPrompt":
+            if domain is not None:
+                domain_prompts = network.x_domain_prompt(x, domain)
+                domain_prompts = network.x_domain_prompt(x, 2)
+                with PrependPrompt(network.featurizer, domain_prompts):
+                    feat = network.featurizer(x)
+            else:
+                domain_prompts = []
+                for i in range(network.num_domains):
+                    domain_prompt = network.x_domain_prompt(x, i)
+                    domain_prompts.append(domain_prompt)
+                domain_prompts = torch.stack(domain_prompts, dim=1).mean(dim=1)
+                domain_prompts = network.x_domain_prompt(x, 2)
+                with PrependPrompt(network.featurizer, domain_prompts):
+                    feat = network.featurizer(x)
+        elif algorithm in ["Prompt"]:
+            domain_prompts = network.prompt_tokens.repeat(len(x), 1, 1)
+            with PrependPrompt(network.featurizer, domain_prompts):
+                feat = network.featurizer(x)
+        elif algorithm == "PromptDeep":
+            domain_prompts = [t.repeat(len(x), 1, 1) for t in network.deep_prompt_tokens]
+            with PrependPromptDeep(network.featurizer, domain_prompts):
+                feat = network.featurizer(x)
+        else:
+            feat = network.featurizer(x)
+        
         # update feat_mean
         feat_mean += feat.sum(dim=0)
         cnt += feat.shape[0]
@@ -250,6 +277,14 @@ if __name__ == "__main__":
         for i in range(len(out_splits))]
     eval_loader_names += ['env{}_uda'.format(i)
         for i in range(len(uda_splits))]
+    
+    # domain mapping
+    cnt = 0
+    domain_mapping = {x: None for x in args.test_envs}
+    for i in range(len(in_splits)):
+        if i not in args.test_envs:
+            domain_mapping[i] = cnt
+            cnt += 1
 
     algorithm_class = algorithms.get_algorithm_class(args.algorithm)
     algorithm = algorithm_class(dataset.input_shape, dataset.num_classes,
@@ -270,7 +305,7 @@ if __name__ == "__main__":
     feat_means = dict()
     feat_cls_means = dict()
     for name, loader, weights in evals:
-        feat_mean, feat_cls_mean = cal_feat_mean(algorithm, loader, weights, device)
+        feat_mean, feat_cls_mean = cal_feat_mean(algorithm, loader, weights, device, domain=domain_mapping[int(name[3])], algorithm=args.algorithm)
         feat_means[name] = feat_mean
         feat_cls_means[name] = feat_cls_mean
     domain_class_insight(feat_means=feat_means, feat_cls_means=feat_cls_means,)

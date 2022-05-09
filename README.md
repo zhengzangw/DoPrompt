@@ -15,10 +15,10 @@ ViT baseline results:
 
 ```sh
 python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset OfficeHome --test_env 1 \
-     --algorithm SMA --output_dir vit_16_base_result/sma_off_c_0427_01/exp --hparams '{"lr": 1e-5}'
+     --algorithm ERM --output_dir vit_16_base_result/erm_off_c_0505_01/exp --hparams '{"lr": 1e-5, "attention_dropout": 0.5}'
 
 python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset OfficeHome --test_env 0 \
-     --algorithm Prompt --output_dir vit_prompt/off_0429_01 --hparams '{"lr": 1e-5}'
+     --algorithm Prompt --output_dir vit_prompt/prompt_off_0_0506_01 --hparams '{"lr": 1e-5, "lr_classifier": 1e-4, "lr_prompt": 1e-3}'
 ```
 
 - PACS
@@ -52,6 +52,22 @@ python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_
        --datasets VLCS \
        --n_trials 2 \
        --hparams '{"lr": 5e-6, "lr_classifier": 5e-5, "mixup_alpha": 0.2, "mmd_gamma": 0.1, "groupdro_eta": 0.01, "mldg_beta": 1, "lambda": 0.1, "mlp_width": 768, "mlp_layer": 1, "irm_lambda": 0.1, "irm_penalty_anneal_iters": 500}'
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_16_base_result/prompt_vlcs_0505_99 \
+       --algorithms Prompt \
+       --datasets VLCS \
+       --n_trials 1 \
+       --hparams '{"lr": 5e-6, "lr_classifier": 5e-5}'
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_16_base_result/rsc_off_0505_99 \
+       --algorithms RSC \
+       --datasets OfficeHome \
+       --n_trials 1 \
+       --hparams '{"lr": 1e-5, "lr_classifier": 1e-4}'
 ```
 
 ## Collect Results

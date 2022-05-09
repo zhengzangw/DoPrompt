@@ -30,6 +30,7 @@ def _hparams(algorithm, dataset, random_seed):
     _hparam('vit_base_16', True, lambda r: True)
     _hparam('im21k', False, lambda r: False)
     _hparam('resnet_dropout', 0.1, lambda r: 0.1)
+    _hparam('attention_dropout', 0.0, lambda r: 0.0)
 
     _hparam('data_augmentation', True, lambda r: True)
     _hparam('resnet18', False, lambda r: False)
@@ -129,10 +130,10 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('is_project', False, lambda r: False)
         _hparam('is_flipped', True, lambda r: True)
         
-    elif "Prompt" in algorithm:
+    elif "Prompt" in algorithm or algorithm in ["PADA"]:
         _hparam('eval_mode', 1, lambda r: 1)
-        _hparam('prompt_dim', 20, lambda r: 20)
-        _hparam('lr_prompt', 1.0, lambda r: 1.0)
+        _hparam('prompt_dim', 50, lambda r: 50)
+        _hparam('lr_prompt', 0.0, lambda r: 0.0)
 
     # Dataset-and-algorithm-specific hparam definitions. Each block of code
     # below corresponds to exactly one hparam. Avoid nested conditionals.

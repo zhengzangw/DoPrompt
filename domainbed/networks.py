@@ -201,7 +201,7 @@ class ViT(nn.Module):
             del self.network.head
             self.network.head = Identity()
         else:
-            self.network = torchvision.models.vit_b_16(pretrained=True)
+            self.network = torchvision.models.vit_b_16(pretrained=True, attention_dropout=hparams["attention_dropout"])
             del self.network.heads
             self.network.heads = Identity()
 
@@ -263,7 +263,7 @@ class WholeFish(nn.Module):
 class MLPBlock(nn.Sequential):
     """Transformer MLP block."""
 
-    def __init__(self, in_dim: int, mlp_dim: int, dropout: float):
+    def __init__(self, in_dim: int, mlp_dim: int, dropout: float = 0.0):
         super().__init__()
         self.linear_1 = nn.Linear(in_dim, mlp_dim)
         self.act = nn.GELU()
