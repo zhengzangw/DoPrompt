@@ -2653,7 +2653,7 @@ class MyPrompt(DomainPrompt):
         self.project_opt = torch.optim.AdamW(
             self.project.parameters(),
             lr=self.hparams["lr_classifier"],
-            weight_decay=1e-5
+            weight_decay=1e-5,
         )
         
     def x_domain_prompt_comb(self, all_bias):
@@ -2763,7 +2763,6 @@ class MyPrompt2(MyPrompt):
         loss = F.cross_entropy(all_logit, all_y, reduction="none")
         loss_2 = loss[mask].sum() / mask.sum()
         loss_3 = loss[~mask].sum() / (len(mask) - mask.sum())
-        (loss_2 + loss_3).backward()
         
         self.prompt_opt.step()
         self.optimizer.step()

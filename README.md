@@ -68,6 +68,46 @@ python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_
        --datasets OfficeHome \
        --n_trials 1 \
        --hparams '{"lr": 1e-5, "lr_classifier": 1e-4}'
+
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_prompt_ours/ours_off_0509_01 \
+       --algorithms MyPrompt2 \
+       --datasets OfficeHome \
+       --n_trials 2 \
+       --hparams '{"lr": 1e-5, "lr_classifier": 1e-3, "lr_prompt": 1e-2, "weight_decay": 1e-2, "prompt_dim": 50}'
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_prompt_ours/ours_vlcs_0509_01 \
+       --algorithms MyPrompt2 \
+       --datasets VLCS \
+       --n_trials 2 \
+       --hparams '{"lr": 1e-5, "lr_classifier": 1e-3, "lr_prompt": 1e-2, "weight_decay": 1e-2, "prompt_dim": 50}'
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_prompt_ours/ours_pacs_0509_01 \
+       --algorithms MyPrompt2 \
+       --datasets PACS \
+       --n_trials 2 \
+       --hparams '{"lr": 1e-5, "lr_classifier": 1e-3, "lr_prompt": 1e-2, "weight_decay": 1e-2, "prompt_dim": 50}'
+
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_prompt_ours/ours_dn_0509_01 \
+       --algorithms MyPrompt2 \
+       --datasets DomainNet \
+       --n_trials 1 \
+       --hparams '{"lr": 5e-5, "lr_classifier": 5e-3, "lr_prompt": 5e-2, "weight_decay": 1e-2, "prompt_dim": 50}'
+python -m domainbed.scripts.sweep launch --data_dir=./domainbed/data/ --command_launcher local \
+       --steps 5001 --single_test_envs --n_hparams 1 \
+       --output_dir=vit_prompt_ours/ours_dn_0509_02 \
+       --algorithms MyPrompt2 \
+       --datasets DomainNet \
+       --n_trials 1 \
+       --hparams '{"lr": 5e-5, "lr_classifier": 5e-4, "lr_prompt": 5e-3, "weight_decay": 1e-2, "prompt_dim": 50}'
 ```
 
 ## Collect Results
