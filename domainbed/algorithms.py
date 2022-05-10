@@ -2165,6 +2165,7 @@ class DoPrompt(ERM):
         loss = F.cross_entropy(all_logit, all_y, reduction="none")
         loss_2 = loss[mask].sum() / mask.sum()
         loss_3 = loss[~mask].sum() / (len(mask) - mask.sum())
+        (loss_2 + loss_3).backward()
         
         self.prompt_opt.step()
         self.optimizer.step()
