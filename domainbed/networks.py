@@ -66,6 +66,19 @@ class MLP(nn.Module):
             x = F.relu(x)
         x = self.output(x)
         return x
+    
+    
+class Project(nn.Module):
+    def __init__(self, n_inputs, n_outputs, mlp_width) -> None:
+        super().__init__()
+        self.input = nn.Linear(n_inputs, mlp_width)
+        self.output = nn.Linear(mlp_width, n_outputs)
+        
+    def forward(self, x):
+        x = self.input(x)
+        x = F.relu(x)
+        x = self.output(x)
+        return x
 
 
 class ResNet(torch.nn.Module):

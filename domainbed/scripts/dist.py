@@ -21,7 +21,7 @@ from domainbed import hparams_registry
 from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.torchmisc import dataloader
-from domainbed.algorithms import PrependPrompt, PrependPromptDeep
+from domainbed.algorithms import PrependPrompt
 
 
 @torch.no_grad()
@@ -58,6 +58,14 @@ def cal_feat_mean(network, loader, weights, device, domain=None, algorithm=None)
         elif algorithm == "PromptDeep":
             domain_prompts = [t.repeat(len(x), 1, 1) for t in network.deep_prompt_tokens]
             with PrependPromptDeep(network.featurizer, domain_prompts):
+                feat = network.featurizer(x)
+        elif algorithm == "DoPrompt":
+            all_z, _ = network.forward_first(x)
+            hint = all_z.detach()
+            all_bias = network.project(hint).reshape(-1, network.num_domains, network.prompt_dim)
+            all_bias = F.softmax(all_bias, dim=1)
+            domain_prompts = network.x_domain_prompt_comb(all_bias)
+            with PrependPrompt(network.featurizer, domain_prompts):
                 feat = network.featurizer(x)
         else:
             feat = network.featurizer(x)

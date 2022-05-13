@@ -143,6 +143,7 @@ def _hparams(algorithm, dataset, random_seed):
     else:
         _hparam('lr', 5e-6, lambda r: 5e-6)
     _hparam('lr_classifier', 5e-4, lambda r: 5e-4)
+    _hparam('wd_classifier', 1e-5, lambda r: 1e-5)
 
     if dataset in SMALL_IMAGES:
         _hparam('weight_decay', 0., lambda r: 0.)

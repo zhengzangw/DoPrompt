@@ -241,6 +241,9 @@ if __name__ == "__main__":
             checkpoint_vals[key].append(val)
 
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
+            if step < 100:
+                continue
+            
             results = {
                 'step': step,
                 'epoch': step / steps_per_epoch,

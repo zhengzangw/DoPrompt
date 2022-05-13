@@ -1,5 +1,13 @@
 # Domain-Prompt
 
+## Ours
+
+```sh
+python -m domainbed.scripts.train --data_dir=./domainbed/data/ --steps 5001 --dataset DomainNet --test_env 0 \
+     --algorithm DoPrompt --output_dir vit_prompt_ours/dopropt_dn_0_0510_88/exp --seed 0 \ 
+     --hparams '{"lr": 5e-5, "lr_classifier": 5e-3, "lr_prompt": 5e-2, "weight_decay": 1e-2, "prompt_dim": 50}' 
+```
+
 ## Launch single job
 
 Replicate resnet-50 results:
