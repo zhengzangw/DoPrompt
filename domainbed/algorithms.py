@@ -1977,86 +1977,19 @@ class Prompt(ERM):
         return all_logit
 
 
-class DomainPrompt(ERM):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
-        assert self.hparams['vit_base_16'] == True
-        
-        self.num_domains = num_domains
-        self.eval_mode = self.hparams['eval_mode']
-        assert self.eval_mode in [1, 2] # 1: ensemble, 2: average
-        
-        # init prompt embedding
-        # class_token_const = self.featurizer.network.class_token.clone().detach()
-        # cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
-        self.prompt_tokens = nn.Parameter(
-            torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02)#.add_(class_token_const).add_(cls_pos_token_const)
-        )
-        
-        self.prompt_opt = torch.optim.AdamW(
-            [self.prompt_tokens],
-            lr=self.hparams["lr_prompt"],
-            weight_decay=self.hparams['weight_decay']
-        )
-        
-    def minibatch_domain_prompt(self, minibatches):
-        domain_labels = torch.cat([
-            torch.full((x.shape[0], ), i, dtype=torch.int64, device="cuda")
-            for i, (x, y) in enumerate(minibatches)
-        ])
-        domain_tokens = self.prompt_tokens[domain_labels]
-        return domain_tokens
-    
-    def x_domain_prompt(self, x, domain):
-        domain_labels = torch.full((len(x), ), domain, dtype=torch.int64, device="cuda")
-        domain_tokens = self.prompt_tokens[domain_labels]
-        return domain_tokens
-        
-    def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-        
-        domain_prompts = self.minibatch_domain_prompt(minibatches)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-        loss = F.cross_entropy(all_logit, all_y)
+feature_dict = dict()
+def get_features(name: str, features: dict):
+    # to get the output of global_pool:
+    # model.global_pool.register_forward_hook(get_features('feats', feature_dict))
+    def hook(model, input, output):
+        features[name] = output.detach()
 
-        self.prompt_opt.zero_grad()
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.prompt_opt.step()
-        self.optimizer.step()
+    return hook
 
-        return {"loss": loss.item()}
 
-    def predict(self, x, domain=None):
-        if domain is None:
-            # === ensemble ===
-            if self.eval_mode == 1:
-                predictions = []
-                for i in range(self.num_domains):
-                    domain_prompts = self.x_domain_prompt(x, i)
-                    with PrependPrompt(self.featurizer, domain_prompts):
-                        predictions.append(self.network(x))
-                predictions = torch.stack(predictions, dim=1)
-                probs = torch.softmax(predictions, dim=-1)
-                mean_probs = torch.mean(probs, dim=1)
-                return mean_probs
-            # === average ===
-            elif self.eval_mode == 2:
-                domain_prompts = []
-                for i in range(self.num_domains):
-                    domain_prompt = self.x_domain_prompt(x, i)
-                    domain_prompts.append(domain_prompt)
-                domain_prompts = torch.stack(domain_prompts, dim=1).mean(dim=1)
-                with PrependPrompt(self.featurizer, domain_prompts):
-                    all_logit = self.network(x)
-                return all_logit
-        else:
-            domain_prompts = self.x_domain_prompt(x, domain)
-            with PrependPrompt(self.featurizer, domain_prompts):
-                all_logit = self.network(x)
-            return all_logit
+def detach_hook(model, x):
+    act = x[0]
+    return (act.detach(), )
 
 
 class DoPrompt(ERM):
@@ -2068,11 +2001,10 @@ class DoPrompt(ERM):
         self.prompt_dim = self.hparams['prompt_dim']
         self.mlp_dim = 3072
         assert self.hparams['vit_base_16'] == True
-        assert self.eval_mode in [1, 2]
         
         # prompt tokens
         self.prompt_tokens = nn.Parameter(
-            torch.empty(num_domains + 1, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02)
+            torch.empty(num_domains, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02)
         )
         # prompt adapter
         self.project = networks.Project(self.hidden_dim, num_domains * self.prompt_dim, self.mlp_dim)
@@ -2080,13 +2012,19 @@ class DoPrompt(ERM):
         # optimizer
         self.prompt_opt = torch.optim.AdamW(
             [self.prompt_tokens],
-            lr=self.hparams["lr_prompt"],
+            lr=1e-3,
             weight_decay=1e-5
         )
         self.project_opt = torch.optim.AdamW(
             self.project.parameters(),
             lr=1e-3,
             weight_decay=1e-5,
+        )
+        self.optimizer = torch.optim.AdamW(
+            [
+                {'params': self.featurizer.parameters(), 'lr': self.hparams["lr"], 'weight_decay': self.hparams['weight_decay']},
+                {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': self.hparams['wd_classifier']}
+            ]
         )
         
     def x_domain_prompt(self, x, domain):
@@ -2095,288 +2033,54 @@ class DoPrompt(ERM):
         return domain_tokens
         
     def x_domain_prompt_comb(self, all_bias):
-        prompt_tokens = self.prompt_tokens[:-1]
+        prompt_tokens = self.prompt_tokens
         tokens = prompt_tokens[None, ...]
         bias = all_bias[..., None]
         comb_prompt = tokens * bias
         comb_prompt = comb_prompt.sum(dim=1)
         return comb_prompt
     
-    def forward_first(self, all_x):
-        domain_prompts = self.x_domain_prompt(all_x, -1)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_z = self.featurizer(all_x)
-        all_logit = self.classifier(all_z)
-        return all_z, all_logit
-    
-    def forward_second(self, all_x, all_z):
-        hint = all_z.detach()
-        all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
-        all_bias = F.softmax(all_bias, dim=1)
-        domain_prompts = self.x_domain_prompt_comb(all_bias)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-        return all_logit
-        
-    def update(self, minibatches, unlabeled=None):
-        self.prompt_opt.zero_grad()
-        self.optimizer.zero_grad()
-        self.project_opt.zero_grad()
-        
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-
-        # first pass: with query
-        all_z, all_logit = self.forward_first(all_x)
-        loss_1 = F.cross_entropy(all_logit, all_y)
-        loss_1.backward()
-        
-        # second pass
-        # branch 1: domain prompts
-        # branch 2: domain adapter
-        target_domain = random.randint(0, self.num_domains - 1)
-        start_ind = self.hparams['batch_size'] * target_domain
-        end_ind = start_ind + self.hparams['batch_size']
-        domain_prompts_list = []
-        
-        # second pass
-        for i, (x, y) in enumerate(minibatches):
-            if i != target_domain:
-                domain_p = self.x_domain_prompt(x, i)
-            else:
-                hint = all_z.detach()[start_ind : end_ind]
-                all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
-                all_bias = F.softmax(all_bias, dim=1)
-                domain_p = self.x_domain_prompt_comb(all_bias)
-                
-                # target loss
-                all_bias_gt = torch.zeros_like(all_bias).cuda()
-                all_bias_gt[:, target_domain, :] = 1
-                loss_target = F.binary_cross_entropy(all_bias, all_bias_gt)
-                loss_target.backward(retain_graph=True)
-                
-            domain_prompts_list.append(domain_p)
-        domain_prompts = torch.cat(domain_prompts_list, dim=0)
-        
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-
-        masks = []
-        for i, (x, y) in enumerate(minibatches):
-            if i != target_domain:
-                masks.append(torch.ones(len(x)))
-            else:
-                masks.append(torch.zeros(len(x)))
-        mask = torch.cat(masks).bool().to(all_x.device)
-        loss = F.cross_entropy(all_logit, all_y, reduction="none")
-        loss_2 = loss[mask].sum() / mask.sum()
-        loss_3 = loss[~mask].sum() / (len(mask) - mask.sum())
-        (loss_2 + loss_3).backward()
-        
-        self.prompt_opt.step()
-        self.optimizer.step()
-        self.project_opt.step()
-
-        return {"loss_1": loss_1.item(), "loss_2": loss_2.item(), "loss_3": loss_3.item()}
-    
-    # def predict(self, x, domain=None):
-    #     # first pass
-    #     all_z, _ = self.forward_first(x)
-    #     # second pass
-    #     all_logit = self.forward_second(x, all_z)
-    #     return all_logit
-    
-    def predict(self, x, domain=None):
-        domain_prompts = self.x_domain_prompt(x, 2)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(x)
-        return all_logit
-    
-    
-class DoPrompt_Ablation(DoPrompt):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(input_shape, num_classes, num_domains, hparams)
-        self.reset_dc()
-        
-    def reset_dc(self):
-        num_domains = self.num_domains
-        self.dc = dict()
-        self.dc2 = dict()
-        self.cnt = dict()
-        for i in range(num_domains):
-            self.dc[i] = torch.zeros(num_domains).cuda()
-            self.dc2[i] = torch.zeros(num_domains).cuda()
-            self.cnt[i] = 1
-        self.dc[None] = torch.zeros(num_domains).cuda()
-        self.dc2[None] = torch.zeros(num_domains).cuda()
-        self.cnt[None] = 1
-    
-    def forward_second(self, all_x, all_z, domain=None):
-        hint = all_z.detach()
-        all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
-        all_bias = F.softmax(all_bias, dim=1)
-        domain_prompts = self.x_domain_prompt_comb(all_bias)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-            
-        self.dc[domain] += all_bias.argmax(dim=1).flatten().bincount(minlength=self.num_domains)
-        self.dc2[domain] += all_bias.mean(dim=-1).mean(dim=0)
-        self.cnt[domain] += 1
-            
-        return all_logit
-    
-    def update(self, minibatches, unlabeled=None):
-        return super().update(minibatches, unlabeled)
-    
-    # def predict(self, x, domain=None):
-    #     _, all_logit = self.forward_first(x)
-    #     return all_logit
-    
-    def predict(self, x, domain=None):
-        # first pass
-        all_z, _ = self.forward_first(x)
-        # second pass
-        all_logit = self.forward_second(x, all_z, domain)
-        return all_logit
-    
-
-class DoPrompt2(DoPrompt):
-    def update(self, minibatches, unlabeled=None):
-        self.prompt_opt.zero_grad()
-        self.optimizer.zero_grad()
-        self.project_opt.zero_grad()
-        
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-
-        # first pass: with query
-        all_z, all_logit = self.forward_first(all_x)
-        loss_1 = F.cross_entropy(all_logit, all_y)
-        loss_1.backward()
-        
-        # second pass
-        # branch 1: domain prompts
-        # branch 2: domain adapter
-        target_domain = random.randint(0, self.num_domains - 1)
-        start_ind = self.hparams['batch_size'] * target_domain
-        end_ind = start_ind + self.hparams['batch_size']
-        domain_prompts_list = []
-        
-        # second pass
-        for i, (x, y) in enumerate(minibatches):
-            if i != target_domain:
-                domain_p = self.x_domain_prompt(x, i)
-            else:
-                hint = all_z.detach()[start_ind : end_ind]
-                all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
-                all_bias_mask = torch.zeros_like(all_bias)
-                all_bias_mask[:, target_domain] = -1e5
-                all_bias = all_bias + all_bias_mask
-                all_bias = F.softmax(all_bias, dim=1)
-                domain_p = self.x_domain_prompt_comb(all_bias)
-            domain_prompts_list.append(domain_p)
-        domain_prompts = torch.cat(domain_prompts_list, dim=0)
-        
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-
-        masks = []
-        for i, (x, y) in enumerate(minibatches):
-            if i != target_domain:
-                masks.append(torch.ones(len(x)))
-            else:
-                masks.append(torch.zeros(len(x)))
-        mask = torch.cat(masks).bool().to(all_x.device)
-        loss = F.cross_entropy(all_logit, all_y, reduction="none")
-        loss_2 = loss[mask].sum() / mask.sum()
-        loss_3 = loss[~mask].sum() / (len(mask) - mask.sum())
-        (loss_2 + loss_3).backward()
-        
-        self.prompt_opt.step()
-        self.optimizer.step()
-        self.project_opt.step()
-
-        return {"loss_1": loss_1.item(), "loss_2": loss_2.item(), "loss_3": loss_3.item()}
-    
-
-class PrependPrompt2():
-    def __init__(self, network, domain_token):
-        self.featurizer = network
-        self.domain_tokens = domain_token
-        
-    def add_domain_prompt(self):
-        domain_tokens = self.domain_tokens
-        def _add_domain_prompt(model, x):
-            act = x[0]
-            x_new = torch.cat([act, domain_tokens], dim=1)
-            return (x_new, )
-        return _add_domain_prompt
-
-    def __enter__(self):
-        self.hook = self.featurizer.network.pos_drop.register_forward_pre_hook(self.add_domain_prompt())
-        
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        self.hook.remove()
-
-
-class DoPrompt_im21k(ERM):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(input_shape, num_classes, num_domains, hparams)
-        self.num_domains = num_domains
-        self.eval_mode = self.hparams['eval_mode']
-        self.hidden_dim = 768
-        self.prompt_dim = self.hparams['prompt_dim']
-        self.mlp_dim = 3072
-        assert self.hparams['vit_base_16'] == True
-        assert self.eval_mode in [1, 2]
-        
-        # prompt tokens
-        self.prompt_tokens = nn.Parameter(
-            torch.empty(num_domains + 1, hparams['prompt_dim'], self.hidden_dim).normal_(std=0.02)
-        )
-        # prompt adapter
-        self.project = networks.Project(self.hidden_dim, num_domains * self.prompt_dim, self.mlp_dim)
-        
-        # optimizer
-        self.prompt_opt = torch.optim.AdamW(
-            [self.prompt_tokens],
-            lr=self.hparams["lr_prompt"],
-            weight_decay=1e-5
-        )
-        self.project_opt = torch.optim.AdamW(
-            self.project.parameters(),
-            lr=1e-3,
-            weight_decay=1e-5,
-        )
-        
-    def x_domain_prompt(self, x, domain):
-        domain_labels = torch.full((len(x), ), domain, dtype=torch.int64, device="cuda")
+    def minibatch_domain_prompt(self, minibatches):
+        domain_labels = torch.cat([
+            torch.full((x.shape[0], ), i, dtype=torch.int64, device="cuda")
+            for i, (x, y) in enumerate(minibatches)
+        ])
         domain_tokens = self.prompt_tokens[domain_labels]
         return domain_tokens
-        
-    def x_domain_prompt_comb(self, all_bias):
-        prompt_tokens = self.prompt_tokens[:-1]
-        tokens = prompt_tokens[None, ...]
-        bias = all_bias[..., None]
-        comb_prompt = tokens * bias
-        comb_prompt = comb_prompt.sum(dim=1)
-        return comb_prompt
     
-    def forward_first(self, all_x):
-        domain_prompts = self.x_domain_prompt(all_x, -1)
-        with PrependPrompt2(self.featurizer, domain_prompts):
-            all_z = self.featurizer(all_x)
-        all_logit = self.classifier(all_z)
-        return all_z, all_logit
+    def all_bias_gt(self, disc_labels, all_bias):
+        gt = torch.zeros(all_bias.shape[:-1], dtype=torch.float32, device="cuda")
+        gt.scatter_(1, disc_labels.unsqueeze(1), 1)
+        gt = gt.unsqueeze(-1).repeat(1, 1, self.prompt_dim)
+        return gt
+    
+    def forward_prompt(self, minibatches):
+        all_x = torch.cat([x for x, y in minibatches])
+        domain_prompts = self.minibatch_domain_prompt(minibatches)
+        with PrependPrompt(self.featurizer, domain_prompts):
+            all_logit = self.network(all_x)
+        return all_logit
+    
+    # def forward_first(self, all_x):
+    #     domain_prompts = self.x_domain_prompt(all_x, -1)
+    #     with PrependPrompt(self.featurizer, domain_prompts):
+    #         all_z = self.featurizer(all_x)
+    #     all_logit = self.classifier(all_z)
+    #     return all_z, all_logit
     
     def forward_second(self, all_x, all_z):
         hint = all_z.detach()
         all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
         all_bias = F.softmax(all_bias, dim=1)
         domain_prompts = self.x_domain_prompt_comb(all_bias)
-        with PrependPrompt2(self.featurizer, domain_prompts):
+        with PrependPrompt(self.featurizer, domain_prompts):
             all_logit = self.network(all_x)
-        return all_logit
+        return all_logit, all_bias
+    
+    @torch.no_grad()
+    def forward_raw(self, all_x):
+        all_z = self.featurizer(all_x)
+        return all_z
         
     def update(self, minibatches, unlabeled=None):
         self.prompt_opt.zero_grad()
@@ -2385,64 +2089,41 @@ class DoPrompt_im21k(ERM):
         
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
-
-        # first pass: with query
-        all_z, all_logit = self.forward_first(all_x)
-        loss_1 = F.cross_entropy(all_logit, all_y)
-        loss_1.backward()
+        device = all_x.device
+        disc_labels = torch.cat([
+            torch.full((x.shape[0], ), i, dtype=torch.int64, device=device)
+            for i, (x, y) in enumerate(minibatches)
+        ])
         
-        # second pass
-        # branch 1: domain prompts
-        # branch 2: domain adapter
-        target_domain = random.randint(0, self.num_domains - 1)
-        start_ind = self.hparams['batch_size'] * target_domain
-        end_ind = start_ind + self.hparams['batch_size']
-        domain_prompts_list = []
+        # domain prompt learning
+        all_logit = self.forward_prompt(minibatches)
+        loss_dp = F.cross_entropy(all_logit, all_y)
+        loss_dp.backward()
         
-        # second pass
-        for i, (x, y) in enumerate(minibatches):
-            if i != target_domain:
-                domain_p = self.x_domain_prompt(x, i)
-            else:
-                hint = all_z.detach()[start_ind : end_ind]
-                all_bias = self.project(hint).reshape(-1, self.num_domains, self.prompt_dim)
-                all_bias = F.softmax(all_bias, dim=1)
-                domain_p = self.x_domain_prompt_comb(all_bias)
-                
-                # target loss
-                all_bias_gt = torch.zeros_like(all_bias).cuda()
-                all_bias_gt[:, target_domain, :] = 1
-                loss_target = F.binary_cross_entropy(all_bias, all_bias_gt)
-                loss_target.backward(retain_graph=True)
-                
-            domain_prompts_list.append(domain_p)
-        domain_prompts = torch.cat(domain_prompts_list, dim=0)
+        # prompt adapter learning
+        self.network.eval()
+        all_z = self.forward_raw(all_x)
+        self.network.train()
         
-        with PrependPrompt2(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-
-        masks = []
-        for i, (x, y) in enumerate(minibatches):
-            if i != target_domain:
-                masks.append(torch.ones(len(x)))
-            else:
-                masks.append(torch.zeros(len(x)))
-        mask = torch.cat(masks).bool().to(all_x.device)
-        loss = F.cross_entropy(all_logit, all_y, reduction="none")
-        loss_2 = loss[mask].sum() / mask.sum()
-        loss_3 = loss[~mask].sum() / (len(mask) - mask.sum())
-        (loss_2 + loss_3).backward()
+        all_logit, all_bias = self.forward_second(all_x, all_z)
+        gt_bias = self.all_bias_gt(disc_labels, all_bias)
+        loss_a = F.cross_entropy(all_logit, all_y)
+        loss_w = F.binary_cross_entropy(all_bias, gt_bias)
+        (loss_a + self.hparams['lambda'] * loss_w).backward()
         
         self.prompt_opt.step()
         self.optimizer.step()
         self.project_opt.step()
 
-        return {"loss_1": loss_1.item(), "loss_2": loss_2.item(), "loss_3": loss_3.item()}
+        return {
+            "loss_dp": loss_dp.item(),  
+            "loss_a": loss_a.item(),
+            "loss_w": loss_w.item()
+        }
     
     def predict(self, x, domain=None):
-        # first pass
-        all_z, _ = self.forward_first(x)
-        # second pass
-        all_logit = self.forward_second(x, all_z)
+        all_z = self.forward_raw(x)
+        all_logit, _ = self.forward_second(x, all_z)
         return all_logit
+    
     
