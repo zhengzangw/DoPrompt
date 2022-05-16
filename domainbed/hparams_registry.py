@@ -131,11 +131,13 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('is_flipped', True, lambda r: True)
         
     elif "Prompt" in algorithm or algorithm in ["PADA"]:
-        _hparam('eval_mode', 1, lambda r: 1)
         _hparam('prompt_dim', 4, lambda r: 4)
         _hparam('lambda', 1.0, lambda r: 1.0)
         _hparam('lr_prompt', 1e-3, lambda r: 1e-3)
         _hparam('lr_project', 1e-4, lambda r: 1e-4)
+        _hparam('wd_project', 1e-5, lambda r: 1e-5)
+        _hparam('lr_classifier', 5e-4, lambda r: 5e-4)
+        _hparam('wd_classifier', 1e-2, lambda r: 1e-2)
 
     # Dataset-and-algorithm-specific hparam definitions. Each block of code
     # below corresponds to exactly one hparam. Avoid nested conditionals.
@@ -144,9 +146,6 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('lr', 1e-3, lambda r: 10**r.uniform(-4.5, -2.5))
     else:
         _hparam('lr', 5e-6, lambda r: 5e-6)
-    _hparam('lr_classifier', 5e-4, lambda r: 5e-4)
-    _hparam('wd_classifier', 1e-2, lambda r: 1e-2)
-    _hparam('wd_project', 1e-5, lambda r: 1e-5)
 
     if dataset in SMALL_IMAGES:
         _hparam('weight_decay', 0., lambda r: 0.)

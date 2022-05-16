@@ -131,21 +131,11 @@ class ERM(Algorithm):
         else:
             optimizer = torch.optim.Adam
         
-        if self.hparams["lr"] > 0:
-            self.optimizer = optimizer(
-                [
-                    {'params': self.featurizer.parameters(), 'lr': self.hparams["lr"]},
-                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': self.hparams['wd_classifier']}
-                ],
-                weight_decay=self.hparams['weight_decay']
-            )
-        else:
-            self.optimizer = optimizer(
-                [
-                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
-                ],
-                weight_decay=self.hparams['wd_classifier']
-            )
+        self.optimizer = optimizer(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
         
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x,y in minibatches])
@@ -1975,21 +1965,6 @@ class Prompt(ERM):
         with PrependPrompt(self.featurizer, domain_prompts):
             all_logit = self.network(x)
         return all_logit
-
-
-feature_dict = dict()
-def get_features(name: str, features: dict):
-    # to get the output of global_pool:
-    # model.global_pool.register_forward_hook(get_features('feats', feature_dict))
-    def hook(model, input, output):
-        features[name] = output.detach()
-
-    return hook
-
-
-def detach_hook(model, x):
-    act = x[0]
-    return (act.detach(), )
 
 
 class DoPrompt(ERM):
