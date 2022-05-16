@@ -2012,13 +2012,13 @@ class DoPrompt(ERM):
         # optimizer
         self.prompt_opt = torch.optim.AdamW(
             [self.prompt_tokens],
-            lr=1e-3,
+            lr=self.hparams["lr_prompt"],
             weight_decay=1e-5
         )
         self.project_opt = torch.optim.AdamW(
             self.project.parameters(),
-            lr=1e-3,
-            weight_decay=1e-5,
+            lr=self.hparams["lr_project"],
+            weight_decay=self.hparams["wd_project"],
         )
         self.optimizer = torch.optim.AdamW(
             [
@@ -2060,13 +2060,6 @@ class DoPrompt(ERM):
         with PrependPrompt(self.featurizer, domain_prompts):
             all_logit = self.network(all_x)
         return all_logit
-    
-    # def forward_first(self, all_x):
-    #     domain_prompts = self.x_domain_prompt(all_x, -1)
-    #     with PrependPrompt(self.featurizer, domain_prompts):
-    #         all_z = self.featurizer(all_x)
-    #     all_logit = self.classifier(all_z)
-    #     return all_z, all_logit
     
     def forward_second(self, all_x, all_z):
         hint = all_z.detach()
@@ -2125,5 +2118,3 @@ class DoPrompt(ERM):
         all_z = self.forward_raw(x)
         all_logit, _ = self.forward_second(x, all_z)
         return all_logit
-    
-    
