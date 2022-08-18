@@ -1,12 +1,12 @@
-# DoPrompt
+# Prompt Vision Transformer for Domain Generalization (DoPrompt)
 
-PyTorch implementation of Domain Prompt for Domain Generalization (DoPrompt). This implementation is based on the DomainBed.
+Pytorch implementation of **DoPrompt** (Prompt Vision Transformer for Domain Generalization)
 
 ## Overview
 
 Architecture of Network:
 
-TBD
+![framework](images/framework.png)
 
 ## Training
 
@@ -39,3 +39,7 @@ pip install -r requirements.txt
 ## Citation
 
 TBD
+
+## Acknowlegdement
+
+This code is built on [DomainBed](https://github.com/facebookresearch/DomainBed). We thank the authors for sharing their codes.

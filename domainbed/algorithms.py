@@ -51,9 +51,7 @@ ALGORITHMS = [
     'IB_IRM',
     'CAD',
     'CondCAD',
-    'SMA',
-    'Prompt',
-    'PromptComb',
+    'DoPrompt",
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -1865,43 +1863,7 @@ class MovingAvg:
                 param_k.data = param_q.data
 
 
-class SMA(ERM, MovingAvg):
-    """
-    Empirical Risk Minimization (ERM) with Simple Moving Average (SMA) prediction model
-    """
-
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
-        MovingAvg.__init__(self, self.network)
-
-    def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-        loss = F.cross_entropy(self.network(all_x), all_y)
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        self.update_sma()
-        return {"loss": loss.item()}
-
-    def predict(self, x, domain=None):
-        self.network_sma.eval()
-        return self.network_sma(x)
-
-
 # Ours
-
-class Linear(ERM):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(input_shape, num_classes, num_domains, hparams)
-        self.optimizer = torch.optim.SGD(
-            self.classifier.parameters(),
-            lr=self.hparams["lr_classifier"],
-            weight_decay=self.hparams['weight_decay'],
-            momentum=0.9
-        )
 
 
 class PrependPrompt():
@@ -1923,48 +1885,6 @@ class PrependPrompt():
         
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.hook.remove()
-
-
-class Prompt(ERM):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        ERM.__init__(self, input_shape, num_classes, num_domains, hparams)
-        assert self.hparams['vit_base_16'] == True
-        
-        # init prompt embedding
-        # class_token_const = self.featurizer.network.class_token.clone().detach()
-        # cls_pos_token_const = self.featurizer.network.encoder.pos_embedding[0][0].clone().detach().reshape(1, 1, -1)
-        self.prompt_tokens = nn.Parameter(
-            torch.empty(1, hparams['prompt_dim'], self.featurizer.network.hidden_dim).normal_(std=0.02)#.add_(class_token_const).add_(cls_pos_token_const)
-        )
-        
-        self.prompt_opt = torch.optim.AdamW(
-            [self.prompt_tokens],
-            lr=self.hparams["lr_prompt"],
-            weight_decay=1e-5
-        )
-        
-    def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-        
-        domain_prompts = self.prompt_tokens.repeat(len(all_x), 1, 1)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(all_x)
-        loss = F.cross_entropy(all_logit, all_y)
-
-        self.prompt_opt.zero_grad()
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.prompt_opt.step()
-        self.optimizer.step()
-
-        return {"loss": loss.item()}
-
-    def predict(self, x, domain=None):
-        domain_prompts = self.prompt_tokens.repeat(len(x), 1, 1)
-        with PrependPrompt(self.featurizer, domain_prompts):
-            all_logit = self.network(x)
-        return all_logit
 
 
 class DoPrompt(ERM):
