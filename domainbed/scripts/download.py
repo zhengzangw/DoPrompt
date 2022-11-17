@@ -1,19 +1,18 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
-from torchvision.datasets import MNIST
-import xml.etree.ElementTree as ET
-from zipfile import ZipFile
+
 import argparse
-import tarfile
-import shutil
-import gdown
-import uuid
 import json
 import os
+import shutil
+import tarfile
+import uuid
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
 
+import gdown
+from torchvision.datasets import MNIST
 from wilds.datasets.camelyon17_dataset import Camelyon17Dataset
 from wilds.datasets.fmow_dataset import FMoWDataset
-
 
 # utils #######################################################################
 

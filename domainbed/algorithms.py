@@ -1,5 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-
 import random
 import torch
 import torch.nn as nn

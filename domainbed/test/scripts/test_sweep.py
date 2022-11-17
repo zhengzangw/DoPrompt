@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 import argparse
 import itertools
@@ -11,15 +11,12 @@ import unittest
 import uuid
 
 import torch
-
-from domainbed import datasets
-from domainbed import hparams_registry
-from domainbed import algorithms
-from domainbed import networks
-from domainbed.test import helpers
-from domainbed.scripts import sweep
-
 from parameterized import parameterized
+
+from domainbed import algorithms, datasets, hparams_registry, networks
+from domainbed.scripts import sweep
+from domainbed.test import helpers
+
 
 class TestSweep(unittest.TestCase):
 

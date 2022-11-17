@@ -1,7 +1,9 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 import unittest
+
 from domainbed.lib.query import Q, make_selector_fn
+
 
 class TestQuery(unittest.TestCase):
     def test_everything(self):

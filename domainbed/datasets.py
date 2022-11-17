@@ -1,5 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-
 import os
 import torch
 from PIL import Image, ImageFile

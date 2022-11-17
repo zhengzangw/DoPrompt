@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """
 Things that don't belong anywhere else
@@ -6,17 +6,16 @@ Things that don't belong anywhere else
 
 import hashlib
 import json
+import operator
 import os
 import sys
-from shutil import copyfile
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from numbers import Number
-import operator
+from shutil import copyfile
 
 import numpy as np
 import torch
 import tqdm
-from collections import Counter
 
 
 def l2_between_dicts(dict_1, dict_2):

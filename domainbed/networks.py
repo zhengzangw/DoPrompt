@@ -1,5 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-
 from typing import Callable
 from functools import partial
 import torch

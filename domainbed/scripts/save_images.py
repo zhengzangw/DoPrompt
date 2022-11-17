@@ -1,16 +1,17 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """
 Save some representative images from each dataset to disk.
 """
-import random
-import torch
 import argparse
-from domainbed import hparams_registry
-from domainbed import datasets
-import imageio
 import os
+import random
+
+import imageio
+import torch
 from tqdm import tqdm
+
+from domainbed import datasets, hparams_registry
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Domain generalization')

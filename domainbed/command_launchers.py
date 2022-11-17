@@ -1,5 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-
 """
 A command launcher launches a list of commands on a cluster; implement your own
 launcher to add support for your cluster. We've provided an example launcher

@@ -1,7 +1,9 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 import unittest
+
 from domainbed.lib import misc
+
 
 class TestMisc(unittest.TestCase):
 

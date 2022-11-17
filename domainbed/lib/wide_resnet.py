@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """
 From https://github.com/meliketoy/wide-resnet.pytorch

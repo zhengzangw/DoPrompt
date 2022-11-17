@@ -1,14 +1,14 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """Small query library."""
 
 import collections
 import inspect
 import json
+import math
 import types
 import unittest
 import warnings
-import math
 
 import numpy as np
 

@@ -1,13 +1,12 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
-import unittest
+
 import itertools
-
-from domainbed import hparams_registry
-from domainbed import datasets
-from domainbed import algorithms
+import unittest
 
 from parameterized import parameterized
+
+from domainbed import algorithms, datasets, hparams_registry
+
 
 class TestHparamsRegistry(unittest.TestCase):
 

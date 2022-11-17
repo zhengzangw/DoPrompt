@@ -1,6 +1,7 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 import torch
+
 
 class _InfiniteSampler(torch.utils.data.Sampler):
     """Wraps another Sampler to yield an infinite stream."""

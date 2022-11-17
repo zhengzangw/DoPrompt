@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """
 Example usage:
@@ -7,28 +7,25 @@ python -u -m domainbed.scripts.list_top_hparams \
     --dataset VLCS --test_env 0
 """
 
-import collections
-
-
 import argparse
+import collections
 import functools
 import glob
-import pickle
 import itertools
 import json
 import os
+import pickle
 import random
 import sys
+import warnings
 
 import numpy as np
 import tqdm
 
-from domainbed import datasets
-from domainbed import algorithms
+from domainbed import algorithms, datasets, model_selection
 from domainbed.lib import misc, reporting
-from domainbed import model_selection
 from domainbed.lib.query import Q
-import warnings
+
 
 def todo_rename(records, selection_method, latex):
 

@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """
 Run sweeps
@@ -11,21 +11,18 @@ import hashlib
 import json
 import os
 import random
+import shlex
 import shutil
 import time
 import uuid
 
 import numpy as np
 import torch
-
-from domainbed import datasets
-from domainbed import hparams_registry
-from domainbed import algorithms
-from domainbed.lib import misc
-from domainbed import command_launchers
-
 import tqdm
-import shlex
+
+from domainbed import algorithms, command_launchers, datasets, hparams_registry
+from domainbed.lib import misc
+
 
 class Job:
     NOT_LAUNCHED = 'Not launched'

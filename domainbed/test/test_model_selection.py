@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 """Unit tests."""
 
@@ -13,11 +13,11 @@ import unittest
 import uuid
 
 import torch
+from parameterized import parameterized
 
 from domainbed import model_selection
 from domainbed.lib.query import Q
 
-from parameterized import parameterized
 
 def make_record(step, hparams_seed, envs):
     """envs is a list of (in_acc, out_acc, is_test_env) tuples"""

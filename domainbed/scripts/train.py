@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+
 
 import argparse
 import collections
@@ -12,14 +12,12 @@ import uuid
 import numpy as np
 import PIL
 import torch
-import torchvision
 import torch.utils.data
+import torchvision
 
-from domainbed import datasets
-from domainbed import hparams_registry
-from domainbed import algorithms
+from domainbed import algorithms, datasets, hparams_registry
 from domainbed.lib import misc
-from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
+from domainbed.lib.fast_data_loader import FastDataLoader, InfiniteDataLoader
 from domainbed.lib.torchmisc import dataloader
 
 if __name__ == "__main__":
