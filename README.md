@@ -47,7 +47,14 @@ pip install -r requirements.txt
 
 ## Citation
 
-TBD
+```bibtex
+@article{zheng2022prompt,
+  title={Prompt Vision Transformer for Domain Generalization},
+  author={Zheng, Zangwei and Yue, Xiangyu and Wang, Kai and You, Yang},
+  journal={arXiv preprint arXiv:2208.08914},
+  year={2022}
+}
+```
 
 ## Acknowlegdement
 
