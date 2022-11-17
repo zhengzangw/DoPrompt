@@ -49,7 +49,7 @@ ALGORITHMS = [
     'IB_IRM',
     'CAD',
     'CondCAD',
-    'DoPrompt",
+    'DoPrompt',
 ]
 
 def get_algorithm_class(algorithm_name):
