@@ -129,11 +129,21 @@ class ERM(Algorithm):
         else:
             optimizer = torch.optim.Adam
         
-        self.optimizer = optimizer(
-            self.network.parameters(),
-            lr=self.hparams["lr"],
-            weight_decay=self.hparams['weight_decay']
-        )
+        if self.hparams["lr"] > 0:
+            self.optimizer = optimizer(
+                [
+                    {'params': self.featurizer.parameters(), 'lr': self.hparams["lr"]},
+                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': self.hparams['wd_classifier']}
+                ],
+                weight_decay=self.hparams['weight_decay']
+            )
+        else:
+            self.optimizer = optimizer(
+                [
+                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
+                ],
+                weight_decay=self.hparams['wd_classifier']
+            )
         
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x,y in minibatches])
