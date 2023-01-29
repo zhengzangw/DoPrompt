@@ -42,7 +42,7 @@ python -m domainbed.scripts.collect_results --input_dir=results
 ## Requirements
 
 ```sh
-pip install -r requirements.txt
+pip install -r domainbed/requirements.txt
 ```
 
 ## Citation
