@@ -131,7 +131,7 @@ class ERM(Algorithm):
             self.optimizer = optimizer(
                 [
                     {'params': self.featurizer.parameters(), 'lr': self.hparams["lr"]},
-                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': self.hparams['wd_classifier']}
+                    {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"], 'weight_decay': 1e-5}
                 ],
                 weight_decay=self.hparams['weight_decay']
             )
@@ -140,7 +140,7 @@ class ERM(Algorithm):
                 [
                     {'params': self.classifier.parameters(), 'lr': self.hparams["lr_classifier"]}
                 ],
-                weight_decay=self.hparams['wd_classifier']
+                weight_decay=1e-5,
             )
         
     def update(self, minibatches, unlabeled=None):
@@ -1899,7 +1899,6 @@ class DoPrompt(ERM):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super().__init__(input_shape, num_classes, num_domains, hparams)
         self.num_domains = num_domains
-        self.eval_mode = self.hparams['eval_mode']
         self.hidden_dim = self.featurizer.network.hidden_dim
         self.prompt_dim = self.hparams['prompt_dim']
         self.mlp_dim = 3072
